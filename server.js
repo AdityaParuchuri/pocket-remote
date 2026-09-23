@@ -397,6 +397,8 @@ const PAGE = `<!doctype html>
     border-top: 13px solid transparent; border-bottom: 13px solid transparent;
     border-left: 22px solid #f2f2f2;
   }
+  .icon-bars { display: flex; gap: 7px; }
+  .icon-bars span { width: 7px; height: 26px; background: #f2f2f2; border-radius: 2px; }
 
   .pill {
     display: flex; flex-direction: column; align-items: center; justify-content: space-between;
@@ -404,10 +406,10 @@ const PAGE = `<!doctype html>
     padding: 18px 0; user-select: none;
   }
   .pill button {
-    width: 100%; display: flex; align-items: center; justify-content: center;
-    font-size: 22px; height: 24px;
+    width: calc(100% - 16px); margin: 0 8px; display: flex; align-items: center; justify-content: center;
+    font-size: 22px; height: 34px; border-radius: 12px;
   }
-  .pill button:active { opacity: 0.55; transform: scale(0.88); }
+  .pill button:active { background: rgba(255,255,255,0.16); transform: scale(0.9); }
   .pill .label { font-size: 11px; letter-spacing: 0.06em; color: #9a9a9f; text-transform: uppercase; }
 
   .mute-btn {
@@ -490,6 +492,7 @@ const PAGE = `<!doctype html>
       <button class="circle-btn" id="rewind" aria-label="Rewind">↺</button>
       <button class="circle-btn play" id="playpause" aria-label="Play/Pause">
         <span class="icon-triangle"></span>
+        <span class="icon-bars" hidden><span></span><span></span></span>
       </button>
       <button class="circle-btn" id="forward" aria-label="Forward">↻</button>
     </div>
@@ -640,7 +643,20 @@ const PAGE = `<!doctype html>
   document.getElementById('rewind').onclick = () => send('rewind');
   document.getElementById('forward').onclick = () => send('forward');
 
-  document.getElementById('playpause').onclick = () => send('playpause');
+  // There's no way to query the Mac's actual playback state from here, so
+  // this just flips a local best-guess icon on each tap alongside the real
+  // command — imperfect if playback is also controlled another way, but
+  // clearer than a single ambiguous combined glyph.
+  const playBtn = document.getElementById('playpause');
+  const playTriangle = playBtn.querySelector('.icon-triangle');
+  const playBars = playBtn.querySelector('.icon-bars');
+  let isPlaying = false;
+  playBtn.onclick = () => {
+    send('playpause');
+    isPlaying = !isPlaying;
+    playTriangle.hidden = isPlaying;
+    playBars.hidden = !isPlaying;
+  };
 
   // --- Volume / mute / brightness ---
   document.getElementById('volUp').onclick = async () => {
