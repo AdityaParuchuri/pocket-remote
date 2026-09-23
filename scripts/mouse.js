@@ -1,9 +1,9 @@
-// JXA helper for cursor move/click. Two modes:
+// JXA helper for cursor/scroll control. Two modes:
 //   osascript -l JavaScript mouse.js move <dx> <dy>       (one-shot)
 //   osascript -l JavaScript mouse.js click                 (one-shot)
 //   osascript -l JavaScript mouse.js daemon <fifoPath>     (stays resident,
-//     reads newline-delimited "move <dx> <dy>" / "click" commands from a
-//     named pipe — avoids the per-call process-spawn cost of the one-shot
+//     reads newline-delimited commands — move/click/scroll/end — from a
+//     named pipe, avoiding the per-call process-spawn cost of the one-shot
 //     form, which is what made continuous trackpad drags feel laggy. A real
 //     FIFO is used instead of stdin because Node puts its child-process
 //     stdio pipes in non-blocking mode, which makes NSFileHandle.availableData
@@ -57,12 +57,23 @@ function daemonClick() {
   post($.kCGEventLeftMouseUp, point, 0);
 }
 
+// wheel1 is vertical delta, wheel2 is horizontal delta (positive wheel1
+// scrolls content up in CG's convention, i.e. "natural"/finger-follows
+// scrolling wants the sign of the raw touch delta negated before it gets
+// here — that's done on the server side).
+function doScroll(dy, dx) {
+  const event = $.CGEventCreateScrollWheelEvent($(), $.kCGScrollEventUnitPixel, 2, dy, dx);
+  $.CGEventPost($.kCGHIDEventTap, event);
+}
+
 function handleLine(line) {
   const parts = line.split(' ');
   if (parts[0] === 'move') {
     daemonMove(parseFloat(parts[1]), parseFloat(parts[2]));
   } else if (parts[0] === 'click') {
     daemonClick();
+  } else if (parts[0] === 'scroll') {
+    doScroll(parseFloat(parts[1]), parseFloat(parts[2]));
   } else if (parts[0] === 'end') {
     // Drag session over: forget the tracked position so the next drag
     // re-syncs with wherever the real cursor is (e.g. the physical
@@ -84,7 +95,15 @@ function runDaemon(fifoPath) {
     while ((idx = buffer.indexOf('\n')) !== -1) {
       const line = buffer.slice(0, idx).trim();
       buffer = buffer.slice(idx + 1);
-      if (line) handleLine(line);
+      if (line) {
+        try {
+          handleLine(line);
+        } catch (e) {
+          // Never let one bad command kill the daemon — every trackpad
+          // action for the rest of the session routes through this one
+          // process, so a crash here is much worse than a dropped event.
+        }
+      }
     }
   }
 }

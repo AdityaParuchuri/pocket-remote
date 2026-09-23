@@ -1,6 +1,8 @@
 #!/usr/bin/env node
-// Pocket Remote — play/pause/rewind/forward, switch windows, and a
-// trackpad, all controlling your laptop's frontmost app from your phone.
+// Pocket Remote — play/pause/rewind/forward, volume, brightness, mute,
+// window/Space switching, Mission Control/Exposé, a trackpad (with full
+// 1/2/3-finger gesture support), a scroll column, and remote text typing —
+// all controlling your laptop's frontmost app from your phone.
 //
 // Usage:
 //   node server.js
@@ -17,6 +19,7 @@ const PORT = process.env.PORT || 4321;
 const TOKEN_FILE = path.join(__dirname, '.token');
 const MOUSE_SCRIPT = path.join(__dirname, 'scripts', 'mouse.js');
 const MOUSE_MOVE_LIMIT = 800; // clamp per-request cursor delta (px)
+const SCROLL_LIMIT = 2000; // clamp per-request scroll delta (px)
 
 function getOrCreateToken() {
   try {
@@ -31,20 +34,30 @@ function getOrCreateToken() {
 const TOKEN = getOrCreateToken();
 
 // macOS key codes (ANSI keyboard layout). "space/prev" and "space/next"
-// mirror the three-finger trackpad swipe between full-screen apps/Spaces.
+// mirror the three-finger horizontal trackpad swipe between full-screen
+// apps/Spaces; "mission-control"/"app-expose" mirror a three-finger
+// vertical swipe. "brightness/up" and "brightness/down" use the legacy
+// dedicated brightness key codes — unlike every other action here, this
+// hasn't been visually confirmed to actually change the screen brightness
+// (there's no live-testable feedback from this environment), so if it
+// turns out to be a no-op or backwards, it's a one-line fix.
 const KEY_ACTIONS = {
   playpause: { code: 49 },              // space
   rewind: { code: 123 },                // left arrow
   forward: { code: 124 },               // right arrow
   'space/prev': { code: 123, modifier: 'control down' }, // ctrl+left
   'space/next': { code: 124, modifier: 'control down' }, // ctrl+right
+  'mission-control': { code: 126, modifier: 'control down' }, // ctrl+up
+  'app-expose': { code: 125, modifier: 'control down' },      // ctrl+down
+  'brightness/up': { code: 144 },
+  'brightness/down': { code: 145 },
 };
 
 function runOsascript(args) {
   return new Promise((resolve, reject) => {
     execFile('osascript', args, (err, stdout, stderr) => {
       if (err) return reject(new Error(stderr || err.message));
-      resolve();
+      resolve(stdout);
     });
   });
 }
@@ -56,13 +69,19 @@ function sendKey({ code, modifier }) {
   return runOsascript(['-e', script]);
 }
 
-// Mouse move/click go through a persistent JXA process instead of spawning
-// a fresh `osascript` per event — spawn cost (tens of ms) was serializing
-// and reordering trackpad updates during a drag, making the cursor lag far
-// behind the finger. Commands are sent over a FIFO rather than the child's
-// stdin pipe: Node puts stdio pipes in non-blocking mode, which would make
-// the daemon's blocking read spin instead of wait; a FIFO opened by path
-// doesn't have that problem.
+function typeText(text) {
+  const clean = String(text).slice(0, 500).replace(/[\r\n]/g, ' ');
+  const escaped = clean.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+  return runOsascript(['-e', 'tell application "System Events" to keystroke "' + escaped + '"']);
+}
+
+// Mouse move/click/scroll go through a persistent JXA process instead of
+// spawning a fresh `osascript` per event — spawn cost (tens of ms) was
+// serializing and reordering trackpad updates during a drag, making the
+// cursor lag far behind the finger. Commands are sent over a FIFO rather
+// than the child's stdin pipe: Node puts stdio pipes in non-blocking mode,
+// which would make the daemon's blocking read spin instead of wait; a FIFO
+// opened by path doesn't have that problem.
 const MOUSE_FIFO = path.join(os.tmpdir(), `pocket-remote-mouse-${process.pid}.fifo`);
 let mouseDaemon = null;
 let mouseFifoStream = null;
@@ -107,6 +126,12 @@ function mouseClick() {
   return Promise.resolve();
 }
 
+function mouseScroll(dy, dx) {
+  if (!mouseFifoStream) return Promise.reject(new Error('mouse control unavailable'));
+  mouseFifoStream.write(`scroll ${dy} ${dx}\n`);
+  return Promise.resolve();
+}
+
 function mouseDragEnd() {
   if (mouseFifoStream) mouseFifoStream.write('end\n');
 }
@@ -147,6 +172,29 @@ function setSystemVolume(v) {
 async function changeVolume(delta) {
   const cur = await getSystemVolume();
   return setSystemVolume(cur + delta);
+}
+
+function getMuted() {
+  return new Promise((resolve, reject) => {
+    execFile('osascript', ['-e', 'output muted of (get volume settings)'], (err, stdout, stderr) => {
+      if (err) return reject(new Error(stderr || err.message));
+      resolve(stdout.trim() === 'true');
+    });
+  });
+}
+
+function setMuted(muted) {
+  return new Promise((resolve, reject) => {
+    execFile('osascript', ['-e', `set volume output muted ${muted}`], (err, stdout, stderr) => {
+      if (err) return reject(new Error(stderr || err.message));
+      resolve(muted);
+    });
+  });
+}
+
+async function toggleMute() {
+  const cur = await getMuted();
+  return setMuted(!cur);
 }
 
 function readJsonBody(req) {
@@ -269,6 +317,10 @@ function handleWsUpgrade(req, socket) {
           if (Number.isFinite(dx) && Number.isFinite(dy)) mouseMove(dx, dy);
         } else if (parts[0] === 'click') {
           mouseClick();
+        } else if (parts[0] === 'scroll') {
+          const dy = Math.max(-SCROLL_LIMIT, Math.min(SCROLL_LIMIT, Number(parts[1])));
+          const dx = Math.max(-SCROLL_LIMIT, Math.min(SCROLL_LIMIT, Number(parts[2])));
+          if (Number.isFinite(dy) && Number.isFinite(dx)) mouseScroll(dy, dx);
         } else if (parts[0] === 'end') {
           mouseDragEnd();
         }
@@ -308,42 +360,76 @@ const PAGE = `<!doctype html>
   }
   body {
     display: flex; flex-direction: column; align-items: center;
-    gap: 14px;
+    gap: 16px;
     height: 100vh;
     height: 100dvh;
-    padding: 50px 24px calc(20px + env(safe-area-inset-bottom, 0px));
+    padding: 40px 24px calc(16px + env(safe-area-inset-bottom, 0px));
   }
   #app {
     display: flex; flex-direction: column; align-items: center;
-    gap: 14px; flex: 1; min-height: 0; width: 100%;
+    gap: 18px; flex: 1; min-height: 0; width: 100%; max-width: 380px;
   }
-  h1 {
-    font-size: 13px; font-weight: 600; color: #7a7a80; margin: 18px 0 2px;
-    letter-spacing: 0.08em; text-transform: uppercase;
-  }
-  h1:first-of-type { margin-top: 0; }
-  .row { display: flex; align-items: center; justify-content: center; gap: 20px; }
-  button {
-    border: none; border-radius: 28px; background: #1c1c1f; color: #f2f2f2;
+  .title { font-size: 20px; font-weight: 700; margin: 0; }
+  .row { display: flex; align-items: center; justify-content: center; gap: 16px; }
+  button { border: none; background: none; color: inherit; font: inherit; padding: 0; }
+
+  .circle-btn {
+    border-radius: 22px; background: #1c1c1f; color: #f2f2f2;
     display: flex; align-items: center; justify-content: center;
-    width: 96px; height: 96px; font-size: 34px;
-    box-shadow: 0 0 0 1px #2a2a2e inset;
+    width: 96px; height: 96px; font-size: 30px;
     transition: transform 0.08s ease, background 0.08s ease;
   }
-  button:active { transform: scale(0.92); background: #2c2c31; }
-  .play { width: 128px; height: 128px; border-radius: 50%; font-size: 44px; background: #2563eb; box-shadow: none; }
-  .play:active { background: #1d4ed8; }
-  .small { width: 76px; height: 76px; font-size: 26px; border-radius: 22px; }
+  .circle-btn:active { transform: scale(0.92); background: #2c2c31; }
+  .circle-btn.play { width: 128px; height: 128px; border-radius: 28px; font-size: 44px; background: #2563eb; }
+  .circle-btn.play:active { background: #1d4ed8; }
+
+  .pill {
+    display: flex; flex-direction: column; align-items: center; justify-content: space-between;
+    width: 64px; height: 160px; border-radius: 32px; background: #1c1c1f;
+    padding: 18px 0; user-select: none;
+  }
+  .pill button {
+    width: 100%; display: flex; align-items: center; justify-content: center;
+    font-size: 22px; height: 24px;
+  }
+  .pill button:active { opacity: 0.55; }
+  .pill .label { font-size: 11px; letter-spacing: 0.06em; color: #9a9a9f; text-transform: uppercase; }
+
+  .mute-btn {
+    width: 56px; height: 56px; border-radius: 28px; background: #dc2626; color: #fff;
+    display: flex; align-items: center; justify-content: center; font-size: 22px;
+  }
+  .mute-btn:active { background: #b91c1c; }
+
+  #padRow { display: flex; gap: 12px; flex: 1; min-height: 140px; width: 100%; }
   #trackpad {
-    width: min(340px, 100%); flex: 1; min-height: 140px; border-radius: 20px;
-    background: #16161a; box-shadow: 0 0 0 1px #2a2a2e inset;
-    display: flex; align-items: center; justify-content: center;
-    color: #55555c; font-size: 13px; text-align: center; padding: 16px;
-    touch-action: none; user-select: none; line-height: 1.6;
+    flex: 1; border-radius: 20px; background: #16161a;
+    touch-action: none; user-select: none;
   }
   #trackpad.active { background: #1c1c22; }
+  #scrollPill {
+    width: 40px; border-radius: 20px; background: #1c1c1f; color: #f2f2f2;
+    display: flex; flex-direction: column; align-items: center; justify-content: space-between;
+    padding: 16px 0; touch-action: none; user-select: none;
+  }
+  #scrollPill button { font-size: 20px; width: 100%; }
+  #scrollPill button:active { opacity: 0.55; }
+
+  #footerRow { display: flex; gap: 12px; width: 100%; }
+  #dotsBar {
+    flex: 1; height: 40px; border-radius: 20px; background: #55565A;
+    display: flex; align-items: center; justify-content: center; gap: 8px;
+    touch-action: none; user-select: none;
+  }
+  #dotsBar .dot { width: 8px; height: 8px; border-radius: 4px; background: rgba(255,255,255,0.4); }
+  #keyboardIcon {
+    width: 40px; height: 40px; border-radius: 12px; background: #55565A; color: #f2f2f2;
+    display: flex; align-items: center; justify-content: center; font-size: 18px;
+  }
+  #keyboardIcon:active { opacity: 0.7; }
+
   #status {
-    position: fixed; top: 16px; left: 0; right: 0; text-align: center;
+    position: fixed; top: 12px; left: 0; right: 0; text-align: center;
     font-size: 13px; color: #ff6b6b; min-height: 18px; padding: 0 24px; z-index: 10;
   }
   #tokenBox { display: none; flex-direction: column; gap: 12px; align-items: center; }
@@ -351,38 +437,83 @@ const PAGE = `<!doctype html>
     background: #1c1c1f; border: 1px solid #2a2a2e; color: #f2f2f2;
     padding: 12px 14px; border-radius: 10px; font-size: 16px; width: 220px; text-align: center;
   }
-  #tokenBox button { width: auto; height: auto; padding: 12px 20px; border-radius: 10px; font-size: 15px; }
+  #tokenBox button.save { padding: 12px 20px; border-radius: 10px; font-size: 15px; background: #1c1c1f; }
+
+  .overlay {
+    position: fixed; inset: 0; background: rgba(0,0,0,0.6);
+    display: none; align-items: flex-end; z-index: 20;
+  }
+  .overlay.visible { display: flex; }
+  .overlay-content {
+    width: 100%; background: #16161a; border-radius: 20px 20px 0 0;
+    padding: 20px 20px calc(20px + env(safe-area-inset-bottom, 0px));
+    display: flex; flex-direction: column; gap: 12px; margin: 0;
+  }
+  .overlay-content input {
+    background: #1c1c1f; border: 1px solid #2a2a2e; color: #f2f2f2;
+    padding: 14px; border-radius: 10px; font-size: 16px;
+  }
+  .overlay-actions { display: flex; gap: 10px; }
+  .overlay-actions button { flex: 1; padding: 12px; border-radius: 10px; font-size: 15px; background: #2563eb; color: #fff; text-align: center; }
+  .overlay-actions button#keyboardClose { background: #2c2c31; color: #f2f2f2; }
 </style>
 </head>
 <body>
   <div id="status"></div>
   <div id="app">
-    <h1>Pocket Remote</h1>
+    <h1 class="title">Pocket Remote</h1>
+
     <div class="row">
-      <button id="rewind" aria-label="Rewind">⏪</button>
-      <button id="playpause" class="play" aria-label="Play/Pause">⏯</button>
-      <button id="forward" aria-label="Forward">⏩</button>
+      <button class="circle-btn" id="rewind" aria-label="Rewind">↺</button>
+      <button class="circle-btn play" id="playpause" aria-label="Play/Pause">⏯</button>
+      <button class="circle-btn" id="forward" aria-label="Forward">↻</button>
     </div>
 
-    <h1>Switch Window</h1>
     <div class="row">
-      <button class="small" id="spacePrev" aria-label="Previous window">⇠</button>
-      <button class="small" id="spaceNext" aria-label="Next window">⇢</button>
+      <div class="pill" id="volumePill">
+        <button id="volUp" aria-label="Volume up">+</button>
+        <span class="label">Vol</span>
+        <button id="volDown" aria-label="Volume down">−</button>
+      </div>
+      <button class="mute-btn" id="muteBtn" aria-label="Mute">🔇</button>
+      <div class="pill" id="brightnessPill">
+        <button id="brightUp" aria-label="Brightness up">▲</button>
+        <span class="label">Bright</span>
+        <button id="brightDown" aria-label="Brightness down">▼</button>
+      </div>
     </div>
 
-    <h1>Volume</h1>
-    <div class="row">
-      <button class="small" id="volDown" aria-label="Volume down">🔉</button>
-      <button class="small" id="volUp" aria-label="Volume up">🔊</button>
+    <div id="padRow">
+      <div id="trackpad"></div>
+      <div id="scrollPill">
+        <button id="scrollUp" aria-label="Scroll up">+</button>
+        <button id="scrollDown" aria-label="Scroll down">−</button>
+      </div>
     </div>
 
-    <h1>Trackpad</h1>
-    <div id="trackpad">Drag to move · tap to click<br>3-finger swipe to switch window</div>
+    <div id="footerRow">
+      <div id="dotsBar" aria-label="Swipe to switch window">
+        <span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="dot"></span>
+      </div>
+      <button id="keyboardIcon" aria-label="Type text">⌨</button>
+    </div>
   </div>
+
   <div id="tokenBox">
     <input id="tokenInput" placeholder="Paste remote token" autocapitalize="off" autocorrect="off">
-    <button id="tokenSave">Save</button>
+    <button class="save" id="tokenSave">Save</button>
   </div>
+
+  <div id="keyboardOverlay" class="overlay">
+    <form id="keyboardForm" class="overlay-content">
+      <input id="keyboardInput" type="text" placeholder="Type to send..." autocapitalize="off" autocorrect="off" autocomplete="off">
+      <div class="overlay-actions">
+        <button type="submit">Send</button>
+        <button type="button" id="keyboardClose">Close</button>
+      </div>
+    </form>
+  </div>
+
 <script>
   const params = new URLSearchParams(location.search);
   let token = params.get('token') || localStorage.getItem('remoteToken') || '';
@@ -402,21 +533,21 @@ const PAGE = `<!doctype html>
     if (token) {
       localStorage.setItem('remoteToken', token);
       tokenBox.style.display = 'none';
-      appEl.style.display = 'block';
+      appEl.style.display = 'flex';
       statusEl.textContent = '';
       connectWs();
     }
   };
 
-  function flash(msg, ms = 2000, isError = true) {
+  function flash(msg, ms, isError) {
     statusEl.textContent = msg;
     statusEl.style.color = isError ? '#ff6b6b' : '#9a9a9f';
     if (ms) setTimeout(() => { if (statusEl.textContent === msg) statusEl.textContent = ''; }, ms);
   }
 
-  // Trackpad moves/clicks go over a persistent WebSocket when available —
-  // avoids per-move HTTP request/response overhead. Falls back to the
-  // regular fetch() API if the socket isn't open yet.
+  // Trackpad moves/clicks/scrolls go over a persistent WebSocket when
+  // available — avoids per-move HTTP request/response overhead. Falls back
+  // to the regular fetch() API if the socket isn't open yet.
   let ws = null;
   let wsReconnectDelay = 500;
 
@@ -449,19 +580,19 @@ const PAGE = `<!doctype html>
         body: body ? JSON.stringify(body) : undefined,
       });
       if (res.status === 403) {
-        flash('Invalid token', 3000);
+        flash('Invalid token', 3000, true);
         showTokenPrompt();
         return null;
       }
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        flash(data.error || 'Command failed', 4000);
+        flash(data.error || 'Command failed', 4000, true);
         return null;
       }
       if (navigator.vibrate) navigator.vibrate(15);
       return data;
     } catch (e) {
-      flash('Cannot reach laptop', 3000);
+      flash('Cannot reach laptop', 3000, true);
       return null;
     }
   }
@@ -469,70 +600,112 @@ const PAGE = `<!doctype html>
   if (!token) showTokenPrompt();
   else connectWs();
 
+  // --- Transport ---
   document.getElementById('rewind').onclick = () => send('rewind');
   document.getElementById('playpause').onclick = () => send('playpause');
   document.getElementById('forward').onclick = () => send('forward');
-  document.getElementById('spacePrev').onclick = () => send('space/prev');
-  document.getElementById('spaceNext').onclick = () => send('space/next');
-  document.getElementById('volDown').onclick = async () => {
-    const data = await send('volume/down');
-    if (data && typeof data.volume === 'number') flash('Volume ' + data.volume + '%', 1500, false);
-  };
+
+  // --- Volume / mute / brightness ---
   document.getElementById('volUp').onclick = async () => {
     const data = await send('volume/up');
     if (data && typeof data.volume === 'number') flash('Volume ' + data.volume + '%', 1500, false);
   };
+  document.getElementById('volDown').onclick = async () => {
+    const data = await send('volume/down');
+    if (data && typeof data.volume === 'number') flash('Volume ' + data.volume + '%', 1500, false);
+  };
+  document.getElementById('muteBtn').onclick = async () => {
+    const data = await send('mute');
+    if (data && typeof data.muted === 'boolean') flash(data.muted ? 'Muted' : 'Unmuted', 1200, false);
+  };
+  document.getElementById('brightUp').onclick = () => { send('brightness/up'); flash('Brightness up', 1000, false); };
+  document.getElementById('brightDown').onclick = () => { send('brightness/down'); flash('Brightness down', 1000, false); };
 
-  // --- Trackpad: drag to move cursor, tap to click, 3-finger swipe to switch window ---
+  // --- Trackpad: full 1/2/3-finger gesture support, emulating a MacBook
+  // trackpad — 1 finger drags the cursor and taps to click, 2 fingers
+  // scroll (natural direction: content follows your finger), 3 fingers
+  // swipe horizontally to switch windows/Spaces or vertically for Mission
+  // Control (up) / App Exposé (down). Mode is decided by the highest
+  // finger count seen and never downgrades mid-gesture, matching how a
+  // real trackpad behaves. ---
   const trackpad = document.getElementById('trackpad');
   const SENSITIVITY = 1.6;
+  const SCROLL_SENSITIVITY = 1.2;
   const SWIPE_THRESHOLD = 40;
   const TAP_MAX_MS = 300;
   const TAP_MAX_MOVE = 8;
 
+  function centroid(touches) {
+    let x = 0, y = 0;
+    for (let i = 0; i < touches.length; i++) { x += touches[i].clientX; y += touches[i].clientY; }
+    return { x: x / touches.length, y: y / touches.length };
+  }
+
   let touchState = null;
 
-  // Each touchmove is sent as soon as it happens rather than batched onto a
-  // setInterval tick — batching decoupled send timing from actual touch
-  // events, and JS timer jitter under load turned that into uneven, bursty
-  // movement. Now that a move is a single cheap WebSocket frame, 1:1 is
-  // both simpler and smoother.
   function sendMove(dx, dy) {
     if (dx === 0 && dy === 0) return;
     if (!sendWs('move ' + dx + ' ' + dy)) send('mouse/move', { dx, dy });
   }
 
+  // Positive dy scrolls content down (traditional convention); a 2-finger
+  // drag up should feel like natural scrolling (content follows the
+  // finger), so its sign is inverted before it reaches here.
+  function sendScroll(dy, dx) {
+    if (dy === 0 && dx === 0) return;
+    if (!sendWs('scroll ' + dy + ' ' + dx)) send('mouse/scroll', { dx, dy });
+  }
+
   function endTracking() {
     trackpad.classList.remove('active');
-    if (!sendWs('end')) send('mouse/end');
+    if (touchState && touchState.mode === 'pointer') {
+      if (!sendWs('end')) send('mouse/end');
+    }
   }
 
   trackpad.addEventListener('touchstart', (e) => {
     e.preventDefault();
     trackpad.classList.add('active');
-    const t = e.touches[0];
-    touchState = {
-      startX: t.clientX, startY: t.clientY,
-      lastX: t.clientX, lastY: t.clientY,
-      startTime: Date.now(),
-      maxFingers: e.touches.length,
-      moved: false,
-    };
+    const fingers = e.touches.length;
+    const c = centroid(e.touches);
+    if (!touchState) {
+      touchState = {
+        mode: fingers === 1 ? 'pointer' : (fingers === 2 ? 'scroll' : 'gesture'),
+        startX: c.x, startY: c.y, lastX: c.x, lastY: c.y,
+        startTime: Date.now(), moved: false, maxFingers: fingers,
+      };
+    } else {
+      touchState.maxFingers = Math.max(touchState.maxFingers, fingers);
+      if (touchState.mode === 'pointer' && fingers >= 2) {
+        if (!sendWs('end')) send('mouse/end');
+      }
+      if (fingers >= 3) touchState.mode = 'gesture';
+      else if (fingers === 2 && touchState.mode !== 'gesture') touchState.mode = 'scroll';
+      touchState.lastX = c.x;
+      touchState.lastY = c.y;
+    }
   }, { passive: false });
 
   trackpad.addEventListener('touchmove', (e) => {
     e.preventDefault();
     if (!touchState) return;
-    touchState.maxFingers = Math.max(touchState.maxFingers, e.touches.length);
-    const t = e.touches[0];
-    if (e.touches.length < 3) {
-      const dx = (t.clientX - touchState.lastX) * SENSITIVITY;
-      const dy = (t.clientY - touchState.lastY) * SENSITIVITY;
-      sendMove(dx, dy);
+    const fingers = e.touches.length;
+    touchState.maxFingers = Math.max(touchState.maxFingers, fingers);
+    const c = centroid(e.touches);
+    const dx = c.x - touchState.lastX;
+    const dy = c.y - touchState.lastY;
+
+    if (touchState.mode === 'pointer' && fingers === 1) {
+      sendMove(dx * SENSITIVITY, dy * SENSITIVITY);
+    } else if (touchState.mode === 'scroll' && fingers === 2) {
+      sendScroll(-dy * SCROLL_SENSITIVITY, -dx * SCROLL_SENSITIVITY);
     }
-    touchState.lastX = t.clientX;
-    touchState.lastY = t.clientY;
-    if (Math.abs(t.clientX - touchState.startX) > TAP_MAX_MOVE || Math.abs(t.clientY - touchState.startY) > TAP_MAX_MOVE) {
+    // mode === 'gesture' (3+ fingers): no continuous action, just track
+    // position for the discrete swipe decision made at touchend.
+
+    touchState.lastX = c.x;
+    touchState.lastY = c.y;
+    if (Math.abs(c.x - touchState.startX) > TAP_MAX_MOVE || Math.abs(c.y - touchState.startY) > TAP_MAX_MOVE) {
       touchState.moved = true;
     }
   }, { passive: false });
@@ -540,24 +713,88 @@ const PAGE = `<!doctype html>
   trackpad.addEventListener('touchend', (e) => {
     e.preventDefault();
     if (!touchState) return;
+    if (e.touches.length > 0) {
+      // Some fingers lifted but the gesture continues with the rest —
+      // resync the centroid baseline so it doesn't jump when recomputed
+      // over the smaller set of remaining touches.
+      const c = centroid(e.touches);
+      touchState.lastX = c.x;
+      touchState.lastY = c.y;
+      return;
+    }
+
     const elapsed = Date.now() - touchState.startTime;
-    const dx = touchState.lastX - touchState.startX;
-    const dy = touchState.lastY - touchState.startY;
-    const fingers = touchState.maxFingers;
+    const totalDx = touchState.lastX - touchState.startX;
+    const totalDy = touchState.lastY - touchState.startY;
+    const mode = touchState.mode;
+    const maxFingers = touchState.maxFingers;
     endTracking();
 
-    if (fingers >= 3 && Math.abs(dx) > SWIPE_THRESHOLD && Math.abs(dx) > Math.abs(dy)) {
-      send(dx < 0 ? 'space/next' : 'space/prev');
-    } else if (fingers === 1 && !touchState.moved && elapsed < TAP_MAX_MS) {
+    if (mode === 'gesture' && maxFingers >= 3) {
+      if (Math.abs(totalDx) > SWIPE_THRESHOLD && Math.abs(totalDx) > Math.abs(totalDy)) {
+        send(totalDx < 0 ? 'space/next' : 'space/prev');
+      } else if (Math.abs(totalDy) > SWIPE_THRESHOLD && Math.abs(totalDy) > Math.abs(totalDx)) {
+        send(totalDy < 0 ? 'mission-control' : 'app-expose');
+      }
+    } else if (mode === 'pointer' && maxFingers === 1 && !touchState.moved && elapsed < TAP_MAX_MS) {
       if (!sendWs('click')) send('mouse/click');
     }
     touchState = null;
   }, { passive: false });
 
-  trackpad.addEventListener('touchcancel', (e) => {
+  trackpad.addEventListener('touchcancel', () => {
     endTracking();
     touchState = null;
   }, { passive: false });
+
+  // --- Scroll pill: discrete nudges using the same sign convention as the
+  // 2-finger trackpad scroll above. ---
+  document.getElementById('scrollUp').onclick = () => sendScroll(-80, 0);
+  document.getElementById('scrollDown').onclick = () => sendScroll(80, 0);
+
+  // --- Dots bar: purely decorative, but swiping it left/right switches
+  // windows/Spaces, same as the trackpad's 3-finger horizontal swipe. ---
+  const dotsBar = document.getElementById('dotsBar');
+  let dotsSwipe = null;
+  dotsBar.addEventListener('touchstart', (e) => {
+    e.preventDefault();
+    const t = e.touches[0];
+    dotsSwipe = { startX: t.clientX, startY: t.clientY };
+  }, { passive: false });
+  dotsBar.addEventListener('touchend', (e) => {
+    e.preventDefault();
+    if (!dotsSwipe) return;
+    const t = e.changedTouches[0];
+    const dx = t.clientX - dotsSwipe.startX;
+    const dy = t.clientY - dotsSwipe.startY;
+    if (Math.abs(dx) > 24 && Math.abs(dx) > Math.abs(dy)) {
+      send(dx < 0 ? 'space/next' : 'space/prev');
+    }
+    dotsSwipe = null;
+  }, { passive: false });
+  dotsBar.addEventListener('touchcancel', () => { dotsSwipe = null; }, { passive: false });
+
+  // --- Keyboard overlay: type on the phone, send as keystrokes to the Mac ---
+  const keyboardOverlay = document.getElementById('keyboardOverlay');
+  const keyboardInput = document.getElementById('keyboardInput');
+
+  document.getElementById('keyboardIcon').onclick = () => {
+    keyboardOverlay.classList.add('visible');
+    keyboardInput.value = '';
+    keyboardInput.focus();
+  };
+  document.getElementById('keyboardClose').onclick = () => {
+    keyboardOverlay.classList.remove('visible');
+    keyboardInput.blur();
+  };
+  document.getElementById('keyboardForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const text = keyboardInput.value;
+    if (!text) return;
+    await send('keyboard/type', { text });
+    keyboardInput.value = '';
+    keyboardInput.focus();
+  });
 </script>
 </body>
 </html>`;
@@ -591,12 +828,24 @@ const server = http.createServer(async (req, res) => {
         await mouseMove(clamp(dx), clamp(dy));
       } else if (action === 'mouse/click') {
         await mouseClick();
+      } else if (action === 'mouse/scroll') {
+        const body = await readJsonBody(req);
+        const clamp = (v) => Math.max(-SCROLL_LIMIT, Math.min(SCROLL_LIMIT, v));
+        const dx = Number(body.dx), dy = Number(body.dy);
+        if (!Number.isFinite(dx) || !Number.isFinite(dy)) throw new Error('invalid dx/dy');
+        await mouseScroll(clamp(dy), clamp(dx));
       } else if (action === 'mouse/end') {
         mouseDragEnd();
       } else if (action === 'volume/up') {
         extra.volume = await changeVolume(VOLUME_STEP);
       } else if (action === 'volume/down') {
         extra.volume = await changeVolume(-VOLUME_STEP);
+      } else if (action === 'mute') {
+        extra.muted = await toggleMute();
+      } else if (action === 'keyboard/type') {
+        const body = await readJsonBody(req);
+        if (typeof body.text !== 'string' || !body.text) throw new Error('missing text');
+        await typeText(body.text);
       } else if (KEY_ACTIONS[action]) {
         await sendKey(KEY_ACTIONS[action]);
       } else {
