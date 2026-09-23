@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Video Remote Control — play/pause/rewind/forward, switch windows, and a
+// Pocket Remote — play/pause/rewind/forward, switch windows, and a
 // trackpad, all controlling your laptop's frontmost app from your phone.
 //
 // Usage:
@@ -129,7 +129,7 @@ const PAGE = `<!doctype html>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-<title>Video Remote</title>
+<title>Pocket Remote</title>
 <style>
   :root { color-scheme: dark; }
   * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
@@ -183,7 +183,7 @@ const PAGE = `<!doctype html>
 <body>
   <div id="status"></div>
   <div id="app">
-    <h1>Video Remote</h1>
+    <h1>Pocket Remote</h1>
     <div class="row">
       <button id="rewind" aria-label="Rewind">⏪</button>
       <button id="playpause" class="play" aria-label="Play/Pause">⏯</button>
@@ -420,7 +420,7 @@ const server = http.createServer(async (req, res) => {
 });
 
 server.listen(PORT, '0.0.0.0', () => {
-  console.log(`Video Remote running on port ${PORT}\n`);
+  console.log(`Pocket Remote running on port ${PORT}\n`);
   console.log('Open one of these on your phone (same WiFi):\n');
   for (const url of getLanUrls()) console.log('  ' + url);
   console.log(`\nToken: ${TOKEN} (saved in .token, reused across restarts)`);
