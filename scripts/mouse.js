@@ -57,12 +57,12 @@ function daemonClick() {
   post($.kCGEventLeftMouseUp, point, 0);
 }
 
-// wheel1 is vertical delta, wheel2 is horizontal delta (positive wheel1
-// scrolls content up in CG's convention, i.e. "natural"/finger-follows
-// scrolling wants the sign of the raw touch delta negated before it gets
-// here — that's done on the server side).
+// wheel1 is vertical delta, wheel2 is horizontal delta. Empirically (tested
+// live) macOS scrolls content in the opposite direction from what CG's docs
+// implied, so both axes are negated here — this is the one place that
+// needs to change if the direction ever needs flipping again.
 function doScroll(dy, dx) {
-  const event = $.CGEventCreateScrollWheelEvent($(), $.kCGScrollEventUnitPixel, 2, dy, dx);
+  const event = $.CGEventCreateScrollWheelEvent($(), $.kCGScrollEventUnitPixel, 2, -dy, -dx);
   $.CGEventPost($.kCGHIDEventTap, event);
 }
 

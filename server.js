@@ -146,7 +146,10 @@ process.on('exit', stopMouseDaemon);
 process.on('SIGINT', () => { stopMouseDaemon(); process.exit(0); });
 process.on('SIGTERM', () => { stopMouseDaemon(); process.exit(0); });
 
-const VOLUME_STEP = 10;
+// macOS's own volume HUD steps through 16 discrete levels (0-15), not an
+// arbitrary +/-10 out of 100 — stepping by level index instead of a raw
+// percentage keeps this in sync with what the physical volume keys do.
+const VOLUME_LEVELS = 16;
 
 function getSystemVolume() {
   return new Promise((resolve, reject) => {
@@ -169,9 +172,12 @@ function setSystemVolume(v) {
   });
 }
 
-async function changeVolume(delta) {
+async function changeVolume(direction) {
   const cur = await getSystemVolume();
-  return setSystemVolume(cur + delta);
+  const level = Math.round((cur / 100) * (VOLUME_LEVELS - 1));
+  const nextLevel = Math.max(0, Math.min(VOLUME_LEVELS - 1, level + direction));
+  const nextVolume = Math.round((nextLevel / (VOLUME_LEVELS - 1)) * 100);
+  return setSystemVolume(nextVolume);
 }
 
 function getMuted() {
@@ -380,7 +386,7 @@ const PAGE = `<!doctype html>
     transition: transform 0.08s ease, background 0.08s ease;
   }
   .circle-btn:active { transform: scale(0.92); background: #2c2c31; }
-  .circle-btn.play { width: 128px; height: 128px; border-radius: 28px; font-size: 44px; background: #2563eb; }
+  .circle-btn.play { border-radius: 48px; background: #2563eb; }
   .circle-btn.play:active { background: #1d4ed8; }
 
   .pill {
@@ -412,16 +418,17 @@ const PAGE = `<!doctype html>
     display: flex; flex-direction: column; align-items: center; justify-content: space-between;
     padding: 16px 0; touch-action: none; user-select: none;
   }
-  #scrollPill button { font-size: 20px; width: 100%; }
-  #scrollPill button:active { opacity: 0.55; }
+  #scrollPill span { font-size: 18px; width: 100%; text-align: center; }
+  #scrollPill.active { background: #2c2c31; }
 
   #footerRow { display: flex; gap: 12px; width: 100%; }
   #dotsBar {
-    flex: 1; height: 40px; border-radius: 20px; background: #55565A;
+    flex: 1; height: 40px; border-radius: 20px; background: #1c1c1f;
     display: flex; align-items: center; justify-content: center; gap: 8px;
     touch-action: none; user-select: none;
   }
   #dotsBar .dot { width: 8px; height: 8px; border-radius: 4px; background: rgba(255,255,255,0.4); }
+  #dotsBar .dot:nth-child(2) { background: rgba(255,255,255,0.15); }
   #keyboardIcon {
     width: 40px; height: 40px; border-radius: 12px; background: #55565A; color: #f2f2f2;
     display: flex; align-items: center; justify-content: center; font-size: 18px;
@@ -465,7 +472,7 @@ const PAGE = `<!doctype html>
 
     <div class="row">
       <button class="circle-btn" id="rewind" aria-label="Rewind">↺</button>
-      <button class="circle-btn play" id="playpause" aria-label="Play/Pause">⏯</button>
+      <button class="circle-btn play" id="playpause" aria-label="Play/Pause">▶</button>
       <button class="circle-btn" id="forward" aria-label="Forward">↻</button>
     </div>
 
@@ -486,8 +493,8 @@ const PAGE = `<!doctype html>
     <div id="padRow">
       <div id="trackpad"></div>
       <div id="scrollPill">
-        <button id="scrollUp" aria-label="Scroll up">+</button>
-        <button id="scrollDown" aria-label="Scroll down">−</button>
+        <span id="scrollUp" aria-hidden="true">↑</span>
+        <span id="scrollDown" aria-hidden="true">↓</span>
       </div>
     </div>
 
@@ -602,8 +609,19 @@ const PAGE = `<!doctype html>
 
   // --- Transport ---
   document.getElementById('rewind').onclick = () => send('rewind');
-  document.getElementById('playpause').onclick = () => send('playpause');
   document.getElementById('forward').onclick = () => send('forward');
+
+  // There's no way to query the Mac's actual playback state from here, so
+  // this just flips a local best-guess icon on each tap alongside the real
+  // command — imperfect if playback is also controlled another way, but
+  // clearer than a single ambiguous combined glyph.
+  const playBtn = document.getElementById('playpause');
+  let isPlaying = false;
+  playBtn.onclick = () => {
+    send('playpause');
+    isPlaying = !isPlaying;
+    playBtn.textContent = isPlaying ? '⏸' : '▶';
+  };
 
   // --- Volume / mute / brightness ---
   document.getElementById('volUp').onclick = async () => {
@@ -747,10 +765,50 @@ const PAGE = `<!doctype html>
     touchState = null;
   }, { passive: false });
 
-  // --- Scroll pill: discrete nudges using the same sign convention as the
-  // 2-finger trackpad scroll above. ---
-  document.getElementById('scrollUp').onclick = () => sendScroll(-80, 0);
-  document.getElementById('scrollDown').onclick = () => sendScroll(80, 0);
+  // --- Scroll pill: tap the top/bottom half for a discrete nudge, or drag
+  // anywhere on it for continuous scrolling — same sign convention as the
+  // 2-finger trackpad scroll above, and same "let a small tap-vs-drag
+  // threshold decide" pattern the trackpad already uses. ---
+  const scrollPill = document.getElementById('scrollPill');
+  const SCROLL_NUDGE = 80;
+  const SCROLL_TAP_MAX_MS = 300;
+  const SCROLL_TAP_MAX_MOVE = 6;
+  let scrollDrag = null;
+
+  scrollPill.addEventListener('touchstart', (e) => {
+    e.preventDefault();
+    scrollPill.classList.add('active');
+    const t = e.touches[0];
+    scrollDrag = { startY: t.clientY, lastY: t.clientY, startTime: Date.now(), moved: false };
+  }, { passive: false });
+
+  scrollPill.addEventListener('touchmove', (e) => {
+    e.preventDefault();
+    if (!scrollDrag) return;
+    const t = e.touches[0];
+    const dy = t.clientY - scrollDrag.lastY;
+    if (Math.abs(t.clientY - scrollDrag.startY) > SCROLL_TAP_MAX_MOVE) scrollDrag.moved = true;
+    if (scrollDrag.moved) sendScroll(-dy * SCROLL_SENSITIVITY, 0);
+    scrollDrag.lastY = t.clientY;
+  }, { passive: false });
+
+  scrollPill.addEventListener('touchend', (e) => {
+    e.preventDefault();
+    scrollPill.classList.remove('active');
+    if (!scrollDrag) return;
+    const elapsed = Date.now() - scrollDrag.startTime;
+    if (!scrollDrag.moved && elapsed < SCROLL_TAP_MAX_MS) {
+      const rect = scrollPill.getBoundingClientRect();
+      const mid = rect.top + rect.height / 2;
+      sendScroll(scrollDrag.startY < mid ? -SCROLL_NUDGE : SCROLL_NUDGE, 0);
+    }
+    scrollDrag = null;
+  }, { passive: false });
+
+  scrollPill.addEventListener('touchcancel', () => {
+    scrollPill.classList.remove('active');
+    scrollDrag = null;
+  }, { passive: false });
 
   // --- Dots bar: purely decorative, but swiping it left/right switches
   // windows/Spaces, same as the trackpad's 3-finger horizontal swipe. ---
@@ -837,9 +895,9 @@ const server = http.createServer(async (req, res) => {
       } else if (action === 'mouse/end') {
         mouseDragEnd();
       } else if (action === 'volume/up') {
-        extra.volume = await changeVolume(VOLUME_STEP);
+        extra.volume = await changeVolume(1);
       } else if (action === 'volume/down') {
-        extra.volume = await changeVolume(-VOLUME_STEP);
+        extra.volume = await changeVolume(-1);
       } else if (action === 'mute') {
         extra.muted = await toggleMute();
       } else if (action === 'keyboard/type') {
