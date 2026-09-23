@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>Pocket Remote</title>
+<link rel="stylesheet" href="/styles.css">
+<script>
+  // There is no dev console on a phone, so surface script errors on screen.
+  window.addEventListener('error', (e) => {
+    const el = document.getElementById('status');
+    if (el) el.textContent = 'JS error: ' + e.message;
+  });
+</script>
+</head>
+<body>
+  <div id="status"></div>
+  <div id="app">
+    <h1 class="title">Pocket Remote</h1>
+
+    <div class="row" id="transportRow">
+      <button class="circle-btn" id="rewind" aria-label="Rewind">↺</button>
+      <button class="circle-btn play" id="playpause" aria-label="Play/Pause">
+        <span class="icon-triangle"></span>
+        <span class="icon-bars" hidden><span></span><span></span></span>
+      </button>
+      <button class="circle-btn" id="forward" aria-label="Forward">↻</button>
+    </div>
+
+    <div class="row">
+      <div class="pill" id="volumePill">
+        <button id="volUp" aria-label="Volume up">+</button>
+        <span class="label">Vol</span>
+        <button id="volDown" aria-label="Volume down">−</button>
+      </div>
+      <button class="mute-btn" id="muteBtn" aria-label="Mute">
+        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M3 9v6h4l5 5V4L7 9H3z"/><path d="M19 8l-5 5M14 8l5 5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" fill="none"/></svg>
+      </button>
+      <div class="pill" id="brightnessPill">
+        <button id="brightUp" aria-label="Brightness up">▲</button>
+        <span class="label">Bright</span>
+        <button id="brightDown" aria-label="Brightness down">▼</button>
+      </div>
+    </div>
+
+    <div id="padRow">
+      <div id="trackpad"></div>
+      <div id="scrollPill">
+        <span id="scrollUp" aria-hidden="true"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 15 12 9 18 15"/></svg></span>
+        <span class="watermark" aria-hidden="true">Scroll</span>
+        <span id="scrollDown" aria-hidden="true"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg></span>
+      </div>
+    </div>
+
+    <div id="footerRow">
+      <div id="windowSwitcher" aria-label="Swipe to switch window">
+        <span class="chevron" aria-hidden="true">&lt;</span>
+        <span class="watermark">Scroll Windows</span>
+        <span class="chevron" aria-hidden="true">&gt;</span>
+      </div>
+      <button id="keyboardIcon" aria-label="Type text"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="5.5" width="19" height="13" rx="2.5"/><path d="M6.5 9.5h.01M10 9.5h.01M14 9.5h.01M17.5 9.5h.01M6.5 13h.01M10 13h.01M14 13h.01M17.5 13h.01M8 15.75h8"/></svg></button>
+    </div>
+  </div>
+
+  <div id="tokenBox">
+    <input id="tokenInput" placeholder="Paste remote token" autocapitalize="off" autocorrect="off">
+    <button class="save" id="tokenSave">Save</button>
+  </div>
+
+  <div id="keyboardOverlay" class="overlay">
+    <div class="overlay-content">
+      <div class="kb-header">
+        <div class="kb-header-label">
+          <span id="kbHint">Click a text field on Mac, then tap</span>
+          <button type="button" id="keyboardPull" class="kb-sync" aria-label="Sync text from Mac">Sync</button>
+        </div>
+        <button type="button" id="keyboardClose" class="kb-close" aria-label="Close keyboard">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>
+        </button>
+      </div>
+      <textarea id="kbProxy" class="kb-proxy" rows="1" autocapitalize="off" autocorrect="on" spellcheck="true"></textarea>
+    </div>
+  </div>
+
+  <div id="volumeHud" class="hud">
+    <span class="hud-icon-small">
+      <svg viewBox="0 0 24 24" fill="currentColor"><path d="M3 9v6h4l5 5V4L7 9H3z"/><path d="M15.5 12c0-1.3-.75-2.42-1.84-2.97v5.94c1.09-.55 1.84-1.67 1.84-2.97z"/></svg>
+    </span>
+    <div class="hud-track">
+      <div class="hud-line"><div class="hud-fill" id="volumeHudFill"></div></div>
+      <div class="hud-dots" id="volumeHudDots"></div>
+    </div>
+    <span class="hud-icon-large">
+      <svg id="volumeHudIcon" viewBox="0 0 24 24" fill="currentColor"><path d="M3 9v6h4l5 5V4L7 9H3z"/></svg>
+    </span>
+  </div>
+
+  <div id="brightnessHud" class="hud mute-only">
+    <span class="hud-icon-large">
+      <svg id="brightnessHudIcon" viewBox="0 0 24 24" fill="none"></svg>
+    </span>
+  </div>
+
+
+  <script type="module" src="/js/main.js"></script>
+</body>
+</html>

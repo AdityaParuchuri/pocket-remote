@@ -1,0 +1,94 @@
+// Long-lived JXA process that injects mouse and keyboard events. It reads
+// newline-delimited commands from a named pipe (see input-daemon.js for the
+// protocol). A FIFO is used instead of stdin because Node puts child stdio
+// pipes in non-blocking mode, which makes NSFileHandle.availableData spin
+// rather than block.
+ObjC.import('CoreGraphics');
+ObjC.import('Foundation');
+
+// The cursor position is tracked here instead of re-queried per move:
+// CGEventPost is fire-and-forget, so a fresh query can return a stale
+// position mid-drag and produce a stepwise, skipping cursor.
+let trackedX = null;
+let trackedY = null;
+let systemEvents = null;
+
+function keyboard() {
+  if (!systemEvents) systemEvents = Application('System Events');
+  return systemEvents;
+}
+
+function currentLocation() {
+  return $.CGEventGetLocation($.CGEventCreate($()));
+}
+
+function postMouse(type, point) {
+  $.CGEventPost($.kCGHIDEventTap, $.CGEventCreateMouseEvent($(), type, point, 0));
+}
+
+function move(dx, dy) {
+  if (trackedX === null) {
+    const cur = currentLocation();
+    trackedX = cur.x;
+    trackedY = cur.y;
+  }
+  trackedX += dx;
+  trackedY += dy;
+  postMouse($.kCGEventMouseMoved, $.CGPointMake(trackedX, trackedY));
+}
+
+function click() {
+  const point = trackedX === null ? currentLocation() : $.CGPointMake(trackedX, trackedY);
+  postMouse($.kCGEventLeftMouseDown, point);
+  postMouse($.kCGEventLeftMouseUp, point);
+}
+
+// macOS scrolls opposite to CG's documented direction, hence the negation.
+function scroll(dy, dx) {
+  const event = $.CGEventCreateScrollWheelEvent($(), $.kCGScrollEventUnitPixel, 2, -dy, -dx);
+  $.CGEventPost($.kCGHIDEventTap, event);
+}
+
+// Forget the tracked position so the next drag re-syncs with the real cursor.
+function endDrag() {
+  trackedX = null;
+  trackedY = null;
+}
+
+function handleLine(line) {
+  const parts = line.split(' ');
+  switch (parts[0]) {
+    case 'move': move(parseFloat(parts[1]), parseFloat(parts[2])); break;
+    case 'click': click(); break;
+    case 'scroll': scroll(parseFloat(parts[1]), parseFloat(parts[2])); break;
+    case 'end': endDrag(); break;
+    case 'type': keyboard().keystroke(JSON.parse(line.slice(5))); break;
+    case 'backspace': {
+      const count = parseInt(parts[1], 10) || 1;
+      for (let i = 0; i < count; i++) keyboard().keyCode(51);
+      break;
+    }
+    case 'return': keyboard().keyCode(36); break;
+  }
+}
+
+function run(argv) {
+  const fh = $.NSFileHandle.fileHandleForReadingAtPath(argv[0]);
+  let buffer = '';
+  while (true) {
+    const data = fh.availableData; // blocks until data arrives or the writer closes
+    if (!data || data.length === 0) break;
+    buffer += $.NSString.alloc.initWithDataEncoding(data, $.NSUTF8StringEncoding).js;
+    let newline;
+    while ((newline = buffer.indexOf('\n')) !== -1) {
+      const line = buffer.slice(0, newline).trim();
+      buffer = buffer.slice(newline + 1);
+      if (!line) continue;
+      try {
+        handleLine(line);
+      } catch (e) {
+        // One bad command must not kill the process every input routes through.
+      }
+    }
+  }
+}

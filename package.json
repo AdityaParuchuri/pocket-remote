@@ -1,0 +1,23 @@
+{
+  "name": "pocket-remote",
+  "version": "1.0.0",
+  "description": "Control your Mac from your phone: media keys, volume, trackpad, and remote typing.",
+  "type": "module",
+  "private": true,
+  "license": "MIT",
+  "main": "src/index.js",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "start": "node src/index.js",
+    "test": "node --test",
+    "test:coverage": "node --test --experimental-test-coverage",
+    "lint": "eslint ."
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.0.0",
+    "eslint": "^9.0.0",
+    "globals": "^15.0.0"
+  }
+}
