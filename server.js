@@ -388,6 +388,17 @@ const PAGE = `<!doctype html>
   .circle-btn:active { transform: scale(0.92); background: #2c2c31; }
   .circle-btn.play { border-radius: 48px; background: #2563eb; }
   .circle-btn.play:active { background: #1d4ed8; }
+  /* CSS-drawn play/pause glyphs instead of Unicode symbols — characters
+     like the media-control emoji tend to render with their own colored
+     background tile on iOS (emoji presentation), which a plain shape
+     doesn't have. */
+  .icon-triangle {
+    width: 0; height: 0; margin-left: 6px;
+    border-top: 13px solid transparent; border-bottom: 13px solid transparent;
+    border-left: 22px solid #f2f2f2;
+  }
+  .icon-bars { display: flex; gap: 7px; }
+  .icon-bars span { width: 7px; height: 26px; background: #f2f2f2; border-radius: 2px; }
 
   .pill {
     display: flex; flex-direction: column; align-items: center; justify-content: space-between;
@@ -414,12 +425,12 @@ const PAGE = `<!doctype html>
   }
   #trackpad.active { background: #1c1c22; }
   #scrollPill {
-    width: 40px; border-radius: 20px; background: #1c1c1f; color: #f2f2f2;
+    width: 40px; border-radius: 20px; background: #55565A; color: #f2f2f2;
     display: flex; flex-direction: column; align-items: center; justify-content: space-between;
     padding: 16px 0; touch-action: none; user-select: none;
   }
   #scrollPill span { font-size: 18px; width: 100%; text-align: center; }
-  #scrollPill.active { background: #2c2c31; }
+  #scrollPill.active { background: #45464a; }
 
   #footerRow { display: flex; gap: 12px; width: 100%; }
   #dotsBar {
@@ -427,8 +438,9 @@ const PAGE = `<!doctype html>
     display: flex; align-items: center; justify-content: center; gap: 8px;
     touch-action: none; user-select: none;
   }
+  #dotsBar .chevron { font-size: 13px; color: #6a6a70; line-height: 1; }
   #dotsBar .dot { width: 8px; height: 8px; border-radius: 4px; background: rgba(255,255,255,0.4); }
-  #dotsBar .dot:nth-child(2) { background: rgba(255,255,255,0.15); }
+  #dotsBar .dot:nth-child(3) { background: rgba(255,255,255,0.15); }
   #keyboardIcon {
     width: 40px; height: 40px; border-radius: 12px; background: #55565A; color: #f2f2f2;
     display: flex; align-items: center; justify-content: center; font-size: 18px;
@@ -472,7 +484,10 @@ const PAGE = `<!doctype html>
 
     <div class="row">
       <button class="circle-btn" id="rewind" aria-label="Rewind">↺</button>
-      <button class="circle-btn play" id="playpause" aria-label="Play/Pause">▶</button>
+      <button class="circle-btn play" id="playpause" aria-label="Play/Pause">
+        <span class="icon-triangle"></span>
+        <span class="icon-bars" hidden><span></span><span></span></span>
+      </button>
       <button class="circle-btn" id="forward" aria-label="Forward">↻</button>
     </div>
 
@@ -500,7 +515,9 @@ const PAGE = `<!doctype html>
 
     <div id="footerRow">
       <div id="dotsBar" aria-label="Swipe to switch window">
+        <span class="chevron" aria-hidden="true">&lt;</span>
         <span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="dot"></span>
+        <span class="chevron" aria-hidden="true">&gt;</span>
       </div>
       <button id="keyboardIcon" aria-label="Type text">⌨</button>
     </div>
@@ -616,11 +633,14 @@ const PAGE = `<!doctype html>
   // command — imperfect if playback is also controlled another way, but
   // clearer than a single ambiguous combined glyph.
   const playBtn = document.getElementById('playpause');
+  const playTriangle = playBtn.querySelector('.icon-triangle');
+  const playBars = playBtn.querySelector('.icon-bars');
   let isPlaying = false;
   playBtn.onclick = () => {
     send('playpause');
     isPlaying = !isPlaying;
-    playBtn.textContent = isPlaying ? '⏸' : '▶';
+    playTriangle.hidden = isPlaying;
+    playBars.hidden = !isPlaying;
   };
 
   // --- Volume / mute / brightness ---
