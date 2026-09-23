@@ -15,7 +15,9 @@
   // There is no dev console on a phone, so surface script errors on screen.
   window.addEventListener('error', (e) => {
     const el = document.getElementById('status');
-    if (el) el.textContent = 'JS error: ' + e.message;
+    if (!el) return;
+    el.textContent = 'JS error: ' + e.message;
+    el.className = 'visible error';
   });
 </script>
 </head>
