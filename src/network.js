@@ -1,3 +1,4 @@
+import { execFile } from 'node:child_process';
 import os from 'node:os';
 
 export function getLanUrls(port, token) {
@@ -8,6 +9,15 @@ export function getLanUrls(port, token) {
     }
   }
   return urls;
+}
+
+/** The Mac's Bonjour name (without `.local`), which stays valid when its IP address changes. */
+export function getLocalHostName() {
+  return new Promise((resolve) => {
+    execFile('scutil', ['--get', 'LocalHostName'], (err, stdout) => {
+      resolve(err ? os.hostname().replace(/\.local$/, '') : stdout.trim());
+    });
+  });
 }
 
 function isPrivateIPv4(address) {

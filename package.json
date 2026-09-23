@@ -2,7 +2,15 @@
   "name": "pocket-remote",
   "version": "1.0.0",
   "description": "Control your Mac from your phone: media keys, volume, trackpad, and remote typing.",
-  "keywords": ["mac", "macos", "remote-control", "trackpad", "iphone", "phone", "keyboard"],
+  "keywords": [
+    "mac",
+    "macos",
+    "remote-control",
+    "trackpad",
+    "iphone",
+    "phone",
+    "keyboard"
+  ],
   "homepage": "https://github.com/AdityaParuchuri/pocket-remote#readme",
   "bugs": "https://github.com/AdityaParuchuri/pocket-remote/issues",
   "repository": {
@@ -20,7 +28,9 @@
     "src",
     "public"
   ],
-  "os": ["darwin"],
+  "os": [
+    "darwin"
+  ],
   "engines": {
     "node": ">=20"
   },
@@ -35,5 +45,8 @@
     "@eslint/js": "^9.0.0",
     "eslint": "^9.0.0",
     "globals": "^15.0.0"
+  },
+  "dependencies": {
+    "uqr": "^0.1.3"
   }
 }

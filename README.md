@@ -1,6 +1,6 @@
 # Pocket Remote
 
-**Control your MacBook from your phone.** Play and pause media, change volume and brightness, use your phone as a trackpad, switch windows, and type on your Mac with your phone's keyboard, from any browser on the same WiFi. Nothing to install on the phone, and no dependencies to install on the Mac.
+**Control your MacBook from your phone.** Play and pause media, change volume and brightness, use your phone as a trackpad, switch windows, and type on your Mac with your phone's keyboard, from any browser on the same WiFi. Nothing to install on the phone.
 
 ## Quick start
 
@@ -18,7 +18,13 @@ cd pocket-remote
 npm start
 ```
 
-It prints a URL like `http://192.168.1.20:4321/?token=…`. Open it on your phone while it's on the same WiFi network as your Mac. The token is saved in `~/.pocket-remote/token`, so the same URL keeps working across restarts. Add the page to your Home Screen for one-tap access.
+It prints a QR code. Scan it with your phone's camera (the phone must be on the same WiFi as your Mac) and the remote opens in your browser. The plain URLs are printed too, including a `<your-mac>.local` address that keeps working if your router changes the Mac's IP. Keep the terminal window open while you use the remote; closing it stops the server.
+
+The token is saved in `~/.pocket-remote/token`, so the same URL keeps working across restarts.
+
+### Add it to your Home Screen
+
+On iPhone, tap **Share → Add to Home Screen**. It then opens full-screen like an app, with no browser bar. (iOS doesn't let a web page do this automatically, so the remote shows a one-time reminder.)
 
 ### Grant Accessibility permission
 
@@ -59,7 +65,7 @@ What it can't do: traffic is plain HTTP, so anyone on the same network who can w
 
 ## How it works
 
-A small Node server (no runtime dependencies) serves the phone UI and receives commands. It controls the Mac through `osascript` for media keys, volume and clipboard, and through one long-running JavaScript-for-Automation process for mouse and keyboard events, which keeps cursor movement and typing responsive. Trackpad movement streams over a WebSocket; everything else uses simple HTTP calls.
+A small Node server (its only dependency is a tiny QR-code renderer) serves the phone UI and receives commands. It controls the Mac through `osascript` for media keys, volume and clipboard, and through one long-running JavaScript-for-Automation process for mouse and keyboard events, which keeps cursor movement and typing responsive. Trackpad movement streams over a WebSocket; everything else uses simple HTTP calls.
 
 ## Development
 

@@ -1,5 +1,6 @@
 import { initWindowSwitcher } from './window-switcher.js';
 import { initHud } from './hud.js';
+import { initInstallHint } from './install-hint.js';
 import { initKeyboard } from './keyboard.js';
 import { initScrollPill } from './scroll-pill.js';
 import { initSession } from './session.js';
@@ -17,3 +18,4 @@ initTrackpad();
 initScrollPill();
 initWindowSwitcher();
 initKeyboard();
+initInstallHint();

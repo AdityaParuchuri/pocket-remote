@@ -12,6 +12,8 @@ const MIME_TYPES = {
   '.html': 'text/html; charset=utf-8',
   '.css': 'text/css; charset=utf-8',
   '.js': 'text/javascript; charset=utf-8',
+  '.webmanifest': 'application/manifest+json',
+  '.png': 'image/png',
 };
 
 const ACCESSIBILITY_ERROR = /not allowed to send keystrokes|assistive access|not allowed assistive/i;
