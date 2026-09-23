@@ -9,7 +9,7 @@
 const http = require('http');
 const os = require('os');
 const crypto = require('crypto');
-const { execFile } = require('child_process');
+const { execFile, spawn } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 
@@ -56,13 +56,66 @@ function sendKey({ code, modifier }) {
   return runOsascript(['-e', script]);
 }
 
+// Mouse move/click go through a persistent JXA process instead of spawning
+// a fresh `osascript` per event — spawn cost (tens of ms) was serializing
+// and reordering trackpad updates during a drag, making the cursor lag far
+// behind the finger. Commands are sent over a FIFO rather than the child's
+// stdin pipe: Node puts stdio pipes in non-blocking mode, which would make
+// the daemon's blocking read spin instead of wait; a FIFO opened by path
+// doesn't have that problem.
+const MOUSE_FIFO = path.join(os.tmpdir(), `pocket-remote-mouse-${process.pid}.fifo`);
+let mouseDaemon = null;
+let mouseFifoStream = null;
+
+function startMouseDaemon() {
+  try { fs.unlinkSync(MOUSE_FIFO); } catch {}
+  execFile('mkfifo', [MOUSE_FIFO], (err) => {
+    if (err) {
+      console.error('mouse daemon: failed to create fifo:', err.message);
+      setTimeout(startMouseDaemon, 1000);
+      return;
+    }
+
+    const child = spawn('osascript', ['-l', 'JavaScript', MOUSE_SCRIPT, 'daemon', MOUSE_FIFO], {
+      stdio: ['ignore', 'ignore', 'pipe'],
+    });
+    child.stderr.on('data', (chunk) => {
+      console.error('mouse daemon:', chunk.toString().trim());
+    });
+    child.on('exit', () => {
+      if (mouseDaemon === child) mouseDaemon = null;
+      if (mouseFifoStream) { mouseFifoStream.destroy(); mouseFifoStream = null; }
+      setTimeout(startMouseDaemon, 500); // restart if it dies/is killed
+    });
+    mouseDaemon = child;
+
+    const stream = fs.createWriteStream(MOUSE_FIFO);
+    stream.on('error', () => {}); // surfaced via the child's exit + restart
+    mouseFifoStream = stream;
+  });
+}
+
 function mouseMove(dx, dy) {
-  return runOsascript(['-l', 'JavaScript', MOUSE_SCRIPT, 'move', String(dx), String(dy)]);
+  if (!mouseFifoStream) return Promise.reject(new Error('mouse control unavailable'));
+  mouseFifoStream.write(`move ${dx} ${dy}\n`);
+  return Promise.resolve();
 }
 
 function mouseClick() {
-  return runOsascript(['-l', 'JavaScript', MOUSE_SCRIPT, 'click']);
+  if (!mouseFifoStream) return Promise.reject(new Error('mouse control unavailable'));
+  mouseFifoStream.write('click\n');
+  return Promise.resolve();
 }
+
+function stopMouseDaemon() {
+  if (mouseFifoStream) mouseFifoStream.destroy();
+  if (mouseDaemon) mouseDaemon.kill();
+  try { fs.unlinkSync(MOUSE_FIFO); } catch {}
+}
+
+process.on('exit', stopMouseDaemon);
+process.on('SIGINT', () => { stopMouseDaemon(); process.exit(0); });
+process.on('SIGTERM', () => { stopMouseDaemon(); process.exit(0); });
 
 const VOLUME_STEP = 10;
 
@@ -317,7 +370,7 @@ const PAGE = `<!doctype html>
       maxFingers: e.touches.length,
       moved: false,
     };
-    if (!flushTimer) flushTimer = setInterval(flushMove, 40);
+    if (!flushTimer) flushTimer = setInterval(flushMove, 16);
   }, { passive: false });
 
   trackpad.addEventListener('touchmove', (e) => {
@@ -418,6 +471,8 @@ const server = http.createServer(async (req, res) => {
   res.writeHead(404);
   res.end();
 });
+
+startMouseDaemon();
 
 server.listen(PORT, '0.0.0.0', () => {
   console.log(`Pocket Remote running on port ${PORT}\n`);
