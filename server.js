@@ -397,7 +397,7 @@ const PAGE = `<!doctype html>
     border-top: 13px solid transparent; border-bottom: 13px solid transparent;
     border-left: 22px solid #f2f2f2;
   }
-  .icon-bars { display: flex; gap: 7px; }
+  .icon-bars:not([hidden]) { display: flex; gap: 7px; }
   .icon-bars span { width: 7px; height: 26px; background: #f2f2f2; border-radius: 2px; }
 
   .pill {
