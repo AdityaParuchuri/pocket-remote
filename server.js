@@ -498,6 +498,12 @@ const PAGE = `<!doctype html>
   .hud-icon-small { flex: none; width: 14px; height: 14px; color: #9a9a9f; }
   .hud-icon-large { flex: none; color: #f2f2f2; }
   .hud-icon-large svg:not([hidden]) { width: 18px; height: 18px; display: block; }
+  /* Mute (pressed directly, no volume change) shows just a centered icon,
+     matching how macOS shows a plain mute badge separately from the
+     level-bar OSD. */
+  .hud.mute-only { width: auto; justify-content: center; }
+  .hud.mute-only .hud-icon-small, .hud.mute-only .hud-track { display: none; }
+  .hud.mute-only .hud-icon-large svg:not([hidden]) { width: 30px; height: 30px; }
   .mute-btn svg { width: 24px; height: 24px; }
   .hud-track { flex: 1; display: flex; flex-direction: column; gap: 6px; }
   .hud-line { position: relative; height: 3px; border-radius: 2px; background: rgba(255,255,255,0.22); overflow: hidden; }
@@ -578,7 +584,7 @@ const PAGE = `<!doctype html>
       <div class="hud-dots" id="volumeHudDots"></div>
     </div>
     <span class="hud-icon-large">
-      <svg id="volumeHudIconLoud" viewBox="0 0 24 24" fill="currentColor"><path d="M3 9v6h4l5 5V4L7 9H3z"/><path d="M15.5 12c0-1.3-.75-2.42-1.84-2.97v5.94c1.09-.55 1.84-1.67 1.84-2.97z"/><path d="M14 5.23v2.06c2.39.72 4.14 2.94 4.14 5.58s-1.75 4.86-4.14 5.58v2.06c3.49-.77 6.1-3.9 6.1-7.64s-2.61-6.87-6.1-7.64z"/></svg>
+      <svg id="volumeHudIconLoud" viewBox="0 0 24 24" fill="currentColor"><path d="M3 9v6h4l5 5V4L7 9H3z"/><path d="M15.5 12c0-1.3-.75-2.42-1.84-2.97v5.94c1.09-.55 1.84-1.67 1.84-2.97z"/></svg>
       <svg id="volumeHudIconMuted" viewBox="0 0 24 24" fill="currentColor" hidden><path d="M3 9v6h4l5 5V4L7 9H3z"/><path d="M19 8l-5 5M14 8l5 5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" fill="none"/></svg>
     </span>
   </div>
@@ -710,14 +716,25 @@ const PAGE = `<!doctype html>
   for (let i = 0; i < VOLUME_HUD_LEVELS; i++) volumeHudDots.appendChild(document.createElement('span'));
   let volumeHudTimer = null;
 
+  function showHud(showBar) {
+    volumeHud.classList.toggle('mute-only', !showBar);
+    volumeHud.classList.add('visible');
+    clearTimeout(volumeHudTimer);
+    volumeHudTimer = setTimeout(() => volumeHud.classList.remove('visible'), 1200);
+  }
+
   function showVolumeHud(percent, muted) {
     volumeHudFill.style.width = (muted ? 0 : percent) + '%';
     const isMuted = muted || percent === 0;
     volumeHudIconLoud.hidden = isMuted;
     volumeHudIconMuted.hidden = !isMuted;
-    volumeHud.classList.add('visible');
-    clearTimeout(volumeHudTimer);
-    volumeHudTimer = setTimeout(() => volumeHud.classList.remove('visible'), 1200);
+    showHud(true);
+  }
+
+  function showMuteHud(muted) {
+    volumeHudIconLoud.hidden = muted;
+    volumeHudIconMuted.hidden = !muted;
+    showHud(false);
   }
 
   document.getElementById('volUp').onclick = async () => {
@@ -730,7 +747,7 @@ const PAGE = `<!doctype html>
   };
   document.getElementById('muteBtn').onclick = async () => {
     const data = await send('mute');
-    if (data && typeof data.muted === 'boolean') showVolumeHud(data.volume || 0, data.muted);
+    if (data && typeof data.muted === 'boolean') showMuteHud(data.muted);
   };
   document.getElementById('brightUp').onclick = () => { send('brightness/up'); flash('Brightness up', 1000, false); };
   document.getElementById('brightDown').onclick = () => { send('brightness/down'); flash('Brightness down', 1000, false); };
