@@ -377,7 +377,7 @@ const PAGE = `<!doctype html>
   }
   .title { font-size: 20px; font-weight: 700; margin: 0; }
   .row { display: flex; align-items: center; justify-content: center; gap: 16px; }
-  button { border: none; background: none; color: inherit; font: inherit; padding: 0; }
+  button { border: none; background: none; color: inherit; font: inherit; padding: 0; transition: transform 0.08s ease, background 0.08s ease, opacity 0.08s ease; }
 
   .circle-btn {
     border-radius: 22px; background: #1c1c1f; color: #f2f2f2;
@@ -397,8 +397,6 @@ const PAGE = `<!doctype html>
     border-top: 13px solid transparent; border-bottom: 13px solid transparent;
     border-left: 22px solid #f2f2f2;
   }
-  .icon-bars { display: flex; gap: 7px; }
-  .icon-bars span { width: 7px; height: 26px; background: #f2f2f2; border-radius: 2px; }
 
   .pill {
     display: flex; flex-direction: column; align-items: center; justify-content: space-between;
@@ -409,21 +407,21 @@ const PAGE = `<!doctype html>
     width: 100%; display: flex; align-items: center; justify-content: center;
     font-size: 22px; height: 24px;
   }
-  .pill button:active { opacity: 0.55; }
+  .pill button:active { opacity: 0.55; transform: scale(0.88); }
   .pill .label { font-size: 11px; letter-spacing: 0.06em; color: #9a9a9f; text-transform: uppercase; }
 
   .mute-btn {
     width: 56px; height: 56px; border-radius: 28px; background: #dc2626; color: #fff;
     display: flex; align-items: center; justify-content: center; font-size: 22px;
   }
-  .mute-btn:active { background: #b91c1c; }
+  .mute-btn:active { background: #b91c1c; transform: scale(0.9); }
 
   #padRow { display: flex; gap: 12px; flex: 1; min-height: 140px; width: 100%; }
   #trackpad {
-    flex: 1; border-radius: 20px; background: #3a3b3f;
+    flex: 1; border-radius: 20px; background: #2c2d30;
     touch-action: none; user-select: none;
   }
-  #trackpad.active { background: #303136; }
+  #trackpad.active { background: #232427; }
   #scrollPill {
     width: 40px; border-radius: 20px; background: #1c1c1f; color: #f2f2f2;
     display: flex; flex-direction: column; align-items: center; justify-content: space-between;
@@ -438,6 +436,8 @@ const PAGE = `<!doctype html>
     display: flex; align-items: center; justify-content: center; gap: 8px;
     touch-action: none; user-select: none;
   }
+  #dotsBar { transition: background 0.08s ease; }
+  #dotsBar.active { background: #2c2c31; }
   #dotsBar .chevron { font-size: 13px; color: #6a6a70; line-height: 1; }
   #dotsBar .dot { width: 8px; height: 8px; border-radius: 4px; background: rgba(255,255,255,0.4); }
   #dotsBar .dot:nth-child(3) { background: rgba(255,255,255,0.15); }
@@ -445,7 +445,7 @@ const PAGE = `<!doctype html>
     width: 40px; height: 40px; border-radius: 12px; background: #55565A; color: #f2f2f2;
     display: flex; align-items: center; justify-content: center; font-size: 18px;
   }
-  #keyboardIcon:active { opacity: 0.7; }
+  #keyboardIcon:active { opacity: 0.7; transform: scale(0.9); }
 
   #status {
     position: fixed; top: 12px; left: 0; right: 0; text-align: center;
@@ -457,6 +457,7 @@ const PAGE = `<!doctype html>
     padding: 12px 14px; border-radius: 10px; font-size: 16px; width: 220px; text-align: center;
   }
   #tokenBox button.save { padding: 12px 20px; border-radius: 10px; font-size: 15px; background: #1c1c1f; }
+  #tokenBox button.save:active { background: #2c2c31; transform: scale(0.95); }
 
   .overlay {
     position: fixed; inset: 0; background: rgba(0,0,0,0.6);
@@ -474,7 +475,10 @@ const PAGE = `<!doctype html>
   }
   .overlay-actions { display: flex; gap: 10px; }
   .overlay-actions button { flex: 1; padding: 12px; border-radius: 10px; font-size: 15px; background: #2563eb; color: #fff; text-align: center; }
+  .overlay-actions button:active { transform: scale(0.95); }
+  .overlay-actions button[type="submit"]:active { background: #1d4ed8; }
   .overlay-actions button#keyboardClose { background: #2c2c31; color: #f2f2f2; }
+  .overlay-actions button#keyboardClose:active { background: #3a3a3f; }
 </style>
 </head>
 <body>
@@ -486,7 +490,6 @@ const PAGE = `<!doctype html>
       <button class="circle-btn" id="rewind" aria-label="Rewind">↺</button>
       <button class="circle-btn play" id="playpause" aria-label="Play/Pause">
         <span class="icon-triangle"></span>
-        <span class="icon-bars" hidden><span></span><span></span></span>
       </button>
       <button class="circle-btn" id="forward" aria-label="Forward">↻</button>
     </div>
@@ -539,6 +542,15 @@ const PAGE = `<!doctype html>
   </div>
 
 <script>
+  // iOS Safari doesn't apply :active CSS at all unless something on the
+  // page has a touch listener — this no-op is the standard fix, and it's
+  // what makes every plain button's press feedback below actually show up.
+  document.body.addEventListener('touchstart', function () {}, { passive: true });
+
+  function vibrate() {
+    if (navigator.vibrate) navigator.vibrate(15);
+  }
+
   const params = new URLSearchParams(location.search);
   let token = params.get('token') || localStorage.getItem('remoteToken') || '';
   if (params.get('token')) localStorage.setItem('remoteToken', token);
@@ -613,7 +625,7 @@ const PAGE = `<!doctype html>
         flash(data.error || 'Command failed', 4000, true);
         return null;
       }
-      if (navigator.vibrate) navigator.vibrate(15);
+      vibrate();
       return data;
     } catch (e) {
       flash('Cannot reach laptop', 3000, true);
@@ -628,20 +640,7 @@ const PAGE = `<!doctype html>
   document.getElementById('rewind').onclick = () => send('rewind');
   document.getElementById('forward').onclick = () => send('forward');
 
-  // There's no way to query the Mac's actual playback state from here, so
-  // this just flips a local best-guess icon on each tap alongside the real
-  // command — imperfect if playback is also controlled another way, but
-  // clearer than a single ambiguous combined glyph.
-  const playBtn = document.getElementById('playpause');
-  const playTriangle = playBtn.querySelector('.icon-triangle');
-  const playBars = playBtn.querySelector('.icon-bars');
-  let isPlaying = false;
-  playBtn.onclick = () => {
-    send('playpause');
-    isPlaying = !isPlaying;
-    playTriangle.hidden = isPlaying;
-    playBars.hidden = !isPlaying;
-  };
+  document.getElementById('playpause').onclick = () => send('playpause');
 
   // --- Volume / mute / brightness ---
   document.getElementById('volUp').onclick = async () => {
@@ -776,6 +775,7 @@ const PAGE = `<!doctype html>
       }
     } else if (mode === 'pointer' && maxFingers === 1 && !touchState.moved && elapsed < TAP_MAX_MS) {
       if (!sendWs('click')) send('mouse/click');
+      else vibrate();
     }
     touchState = null;
   }, { passive: false });
@@ -821,6 +821,7 @@ const PAGE = `<!doctype html>
       const rect = scrollPill.getBoundingClientRect();
       const mid = rect.top + rect.height / 2;
       sendScroll(scrollDrag.startY < mid ? -SCROLL_NUDGE : SCROLL_NUDGE, 0);
+      vibrate();
     }
     scrollDrag = null;
   }, { passive: false });
@@ -836,11 +837,13 @@ const PAGE = `<!doctype html>
   let dotsSwipe = null;
   dotsBar.addEventListener('touchstart', (e) => {
     e.preventDefault();
+    dotsBar.classList.add('active');
     const t = e.touches[0];
     dotsSwipe = { startX: t.clientX, startY: t.clientY };
   }, { passive: false });
   dotsBar.addEventListener('touchend', (e) => {
     e.preventDefault();
+    dotsBar.classList.remove('active');
     if (!dotsSwipe) return;
     const t = e.changedTouches[0];
     const dx = t.clientX - dotsSwipe.startX;
@@ -850,7 +853,10 @@ const PAGE = `<!doctype html>
     }
     dotsSwipe = null;
   }, { passive: false });
-  dotsBar.addEventListener('touchcancel', () => { dotsSwipe = null; }, { passive: false });
+  dotsBar.addEventListener('touchcancel', () => {
+    dotsBar.classList.remove('active');
+    dotsSwipe = null;
+  }, { passive: false });
 
   // --- Keyboard overlay: type on the phone, send as keystrokes to the Mac ---
   const keyboardOverlay = document.getElementById('keyboardOverlay');
