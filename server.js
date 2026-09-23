@@ -420,17 +420,17 @@ const PAGE = `<!doctype html>
 
   #padRow { display: flex; gap: 12px; flex: 1; min-height: 140px; width: 100%; }
   #trackpad {
-    flex: 1; border-radius: 20px; background: #16161a;
+    flex: 1; border-radius: 20px; background: #55565A;
     touch-action: none; user-select: none;
   }
-  #trackpad.active { background: #1c1c22; }
+  #trackpad.active { background: #45464a; }
   #scrollPill {
-    width: 40px; border-radius: 20px; background: #55565A; color: #f2f2f2;
+    width: 40px; border-radius: 20px; background: #1c1c1f; color: #f2f2f2;
     display: flex; flex-direction: column; align-items: center; justify-content: space-between;
     padding: 16px 0; touch-action: none; user-select: none;
   }
   #scrollPill span { font-size: 18px; width: 100%; text-align: center; }
-  #scrollPill.active { background: #45464a; }
+  #scrollPill.active { background: #2c2c31; }
 
   #footerRow { display: flex; gap: 12px; width: 100%; }
   #dotsBar {
