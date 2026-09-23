@@ -495,8 +495,10 @@ const PAGE = `<!doctype html>
     transition: opacity 0.15s ease, transform 0.15s ease;
   }
   .hud.visible { opacity: 1; transform: translateX(-50%) scale(1); }
-  .hud-icon-small { font-size: 13px; color: #9a9a9f; flex: none; }
-  .hud-icon-large { font-size: 17px; color: #f2f2f2; flex: none; }
+  .hud-icon-small { flex: none; width: 14px; height: 14px; color: #9a9a9f; }
+  .hud-icon-large { flex: none; color: #f2f2f2; }
+  .hud-icon-large svg:not([hidden]) { width: 18px; height: 18px; display: block; }
+  .mute-btn svg { width: 24px; height: 24px; }
   .hud-track { flex: 1; display: flex; flex-direction: column; gap: 6px; }
   .hud-line { position: relative; height: 3px; border-radius: 2px; background: rgba(255,255,255,0.22); overflow: hidden; }
   .hud-fill { position: absolute; left: 0; top: 0; bottom: 0; width: 0%; background: #f2f2f2; }
@@ -524,7 +526,9 @@ const PAGE = `<!doctype html>
         <span class="label">Vol</span>
         <button id="volDown" aria-label="Volume down">−</button>
       </div>
-      <button class="mute-btn" id="muteBtn" aria-label="Mute">🔇</button>
+      <button class="mute-btn" id="muteBtn" aria-label="Mute">
+        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M3 9v6h4l5 5V4L7 9H3z"/><path d="M19 8l-5 5M14 8l5 5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" fill="none"/></svg>
+      </button>
       <div class="pill" id="brightnessPill">
         <button id="brightUp" aria-label="Brightness up">▲</button>
         <span class="label">Bright</span>
@@ -566,12 +570,17 @@ const PAGE = `<!doctype html>
   </div>
 
   <div id="volumeHud" class="hud">
-    <span class="hud-icon-small">🔈</span>
+    <span class="hud-icon-small">
+      <svg viewBox="0 0 24 24" fill="currentColor"><path d="M3 9v6h4l5 5V4L7 9H3z"/><path d="M15.5 12c0-1.3-.75-2.42-1.84-2.97v5.94c1.09-.55 1.84-1.67 1.84-2.97z"/></svg>
+    </span>
     <div class="hud-track">
       <div class="hud-line"><div class="hud-fill" id="volumeHudFill"></div></div>
       <div class="hud-dots" id="volumeHudDots"></div>
     </div>
-    <span class="hud-icon-large" id="volumeHudIcon">🔊</span>
+    <span class="hud-icon-large">
+      <svg id="volumeHudIconLoud" viewBox="0 0 24 24" fill="currentColor"><path d="M3 9v6h4l5 5V4L7 9H3z"/><path d="M15.5 12c0-1.3-.75-2.42-1.84-2.97v5.94c1.09-.55 1.84-1.67 1.84-2.97z"/><path d="M14 5.23v2.06c2.39.72 4.14 2.94 4.14 5.58s-1.75 4.86-4.14 5.58v2.06c3.49-.77 6.1-3.9 6.1-7.64s-2.61-6.87-6.1-7.64z"/></svg>
+      <svg id="volumeHudIconMuted" viewBox="0 0 24 24" fill="currentColor" hidden><path d="M3 9v6h4l5 5V4L7 9H3z"/><path d="M19 8l-5 5M14 8l5 5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" fill="none"/></svg>
+    </span>
   </div>
 
 <script>
@@ -694,7 +703,8 @@ const PAGE = `<!doctype html>
   // sync with VOLUME_LEVELS on the server), briefly shown and faded.
   const VOLUME_HUD_LEVELS = 16;
   const volumeHud = document.getElementById('volumeHud');
-  const volumeHudIcon = document.getElementById('volumeHudIcon');
+  const volumeHudIconLoud = document.getElementById('volumeHudIconLoud');
+  const volumeHudIconMuted = document.getElementById('volumeHudIconMuted');
   const volumeHudFill = document.getElementById('volumeHudFill');
   const volumeHudDots = document.getElementById('volumeHudDots');
   for (let i = 0; i < VOLUME_HUD_LEVELS; i++) volumeHudDots.appendChild(document.createElement('span'));
@@ -702,7 +712,9 @@ const PAGE = `<!doctype html>
 
   function showVolumeHud(percent, muted) {
     volumeHudFill.style.width = (muted ? 0 : percent) + '%';
-    volumeHudIcon.textContent = muted || percent === 0 ? '🔇' : (percent < 50 ? '🔉' : '🔊');
+    const isMuted = muted || percent === 0;
+    volumeHudIconLoud.hidden = isMuted;
+    volumeHudIconMuted.hidden = !isMuted;
     volumeHud.classList.add('visible');
     clearTimeout(volumeHudTimer);
     volumeHudTimer = setTimeout(() => volumeHud.classList.remove('visible'), 1200);
