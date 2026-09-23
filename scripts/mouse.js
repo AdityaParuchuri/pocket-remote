@@ -31,12 +31,44 @@ function doClick() {
   post($.kCGEventLeftMouseUp, cur, 0);
 }
 
+// In daemon mode we track the cursor position ourselves rather than asking
+// macOS for it on every move. CGEventPost is fire-and-forget: WindowServer
+// may not have applied the previous synthetic move yet, so re-querying
+// "current" position mid-drag can return a stale value, causing deltas to
+// be skipped or double-applied — a patchy, stepwise-feeling cursor instead
+// of a smooth trail.
+let trackedX = null;
+let trackedY = null;
+
+function daemonMove(dx, dy) {
+  if (trackedX === null) {
+    const cur = currentLocation();
+    trackedX = cur.x;
+    trackedY = cur.y;
+  }
+  trackedX += dx;
+  trackedY += dy;
+  post($.kCGEventMouseMoved, $.CGPointMake(trackedX, trackedY));
+}
+
+function daemonClick() {
+  const point = trackedX === null ? currentLocation() : $.CGPointMake(trackedX, trackedY);
+  post($.kCGEventLeftMouseDown, point, 0);
+  post($.kCGEventLeftMouseUp, point, 0);
+}
+
 function handleLine(line) {
   const parts = line.split(' ');
   if (parts[0] === 'move') {
-    doMove(parseFloat(parts[1]), parseFloat(parts[2]));
+    daemonMove(parseFloat(parts[1]), parseFloat(parts[2]));
   } else if (parts[0] === 'click') {
-    doClick();
+    daemonClick();
+  } else if (parts[0] === 'end') {
+    // Drag session over: forget the tracked position so the next drag
+    // re-syncs with wherever the real cursor is (e.g. the physical
+    // trackpad may have moved it in the meantime).
+    trackedX = null;
+    trackedY = null;
   }
 }
 

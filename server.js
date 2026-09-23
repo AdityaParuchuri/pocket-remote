@@ -107,6 +107,10 @@ function mouseClick() {
   return Promise.resolve();
 }
 
+function mouseDragEnd() {
+  if (mouseFifoStream) mouseFifoStream.write('end\n');
+}
+
 function stopMouseDaemon() {
   if (mouseFifoStream) mouseFifoStream.destroy();
   if (mouseDaemon) mouseDaemon.kill();
@@ -261,6 +265,8 @@ function handleWsUpgrade(req, socket) {
           if (Number.isFinite(dx) && Number.isFinite(dy)) mouseMove(dx, dy);
         } else if (parts[0] === 'click') {
           mouseClick();
+        } else if (parts[0] === 'end') {
+          mouseDragEnd();
         }
       }
     }
@@ -489,6 +495,7 @@ const PAGE = `<!doctype html>
     if (flushTimer) { clearInterval(flushTimer); flushTimer = null; }
     flushMove();
     trackpad.classList.remove('active');
+    if (!sendWs('end')) send('mouse/end');
   }
 
   trackpad.addEventListener('touchstart', (e) => {
@@ -577,6 +584,8 @@ const server = http.createServer(async (req, res) => {
         await mouseMove(clamp(dx), clamp(dy));
       } else if (action === 'mouse/click') {
         await mouseClick();
+      } else if (action === 'mouse/end') {
+        mouseDragEnd();
       } else if (action === 'volume/up') {
         extra.volume = await changeVolume(VOLUME_STEP);
       } else if (action === 'volume/down') {
