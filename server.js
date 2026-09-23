@@ -420,10 +420,10 @@ const PAGE = `<!doctype html>
 
   #padRow { display: flex; gap: 12px; flex: 1; min-height: 140px; width: 100%; }
   #trackpad {
-    flex: 1; border-radius: 20px; background: #55565A;
+    flex: 1; border-radius: 20px; background: #3a3b3f;
     touch-action: none; user-select: none;
   }
-  #trackpad.active { background: #45464a; }
+  #trackpad.active { background: #303136; }
   #scrollPill {
     width: 40px; border-radius: 20px; background: #1c1c1f; color: #f2f2f2;
     display: flex; flex-direction: column; align-items: center; justify-content: space-between;
