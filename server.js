@@ -482,22 +482,26 @@ const PAGE = `<!doctype html>
   .overlay-actions button#keyboardClose { background: #2c2c31; color: #f2f2f2; }
   .overlay-actions button#keyboardClose:active { background: #3a3a3f; }
 
-  /* macOS-style volume HUD: a centered rounded card with an icon and a
-     segmented level bar, briefly shown and faded on change. */
+  /* Classic macOS volume OSD: a wide horizontal pill, small/large speaker
+     icons flanking a level line, with tick dots below it. Briefly shown
+     and faded on change. */
   .hud {
-    position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%) scale(0.85);
-    width: 176px; padding: 26px 20px 22px; box-sizing: border-box;
+    position: fixed; top: 64px; left: 50%; transform: translateX(-50%) scale(0.92);
+    width: min(300px, 82vw); padding: 16px 20px; box-sizing: border-box;
     background: rgba(28,28,31,0.88); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
-    border-radius: 18px;
-    display: flex; flex-direction: column; align-items: center; gap: 16px;
+    border-radius: 14px;
+    display: flex; align-items: center; gap: 12px;
     opacity: 0; pointer-events: none; z-index: 30;
     transition: opacity 0.15s ease, transform 0.15s ease;
   }
-  .hud.visible { opacity: 1; transform: translate(-50%, -50%) scale(1); }
-  .hud-icon { font-size: 34px; line-height: 1; }
-  .hud-bar { display: flex; gap: 3px; width: 100%; }
-  .hud-bar span { flex: 1; height: 9px; border-radius: 2px; background: rgba(255,255,255,0.18); }
-  .hud-bar span.filled { background: #f2f2f2; }
+  .hud.visible { opacity: 1; transform: translateX(-50%) scale(1); }
+  .hud-icon-small { font-size: 13px; color: #9a9a9f; flex: none; }
+  .hud-icon-large { font-size: 17px; color: #f2f2f2; flex: none; }
+  .hud-track { flex: 1; display: flex; flex-direction: column; gap: 6px; }
+  .hud-line { position: relative; height: 3px; border-radius: 2px; background: rgba(255,255,255,0.22); overflow: hidden; }
+  .hud-fill { position: absolute; left: 0; top: 0; bottom: 0; width: 0%; background: #f2f2f2; }
+  .hud-dots { display: flex; justify-content: space-between; padding: 0 1px; }
+  .hud-dots span { width: 3px; height: 3px; border-radius: 50%; background: rgba(255,255,255,0.3); }
 </style>
 </head>
 <body>
@@ -562,8 +566,12 @@ const PAGE = `<!doctype html>
   </div>
 
   <div id="volumeHud" class="hud">
-    <div class="hud-icon" id="volumeHudIcon">🔊</div>
-    <div class="hud-bar" id="volumeHudBar"></div>
+    <span class="hud-icon-small">🔈</span>
+    <div class="hud-track">
+      <div class="hud-line"><div class="hud-fill" id="volumeHudFill"></div></div>
+      <div class="hud-dots" id="volumeHudDots"></div>
+    </div>
+    <span class="hud-icon-large" id="volumeHudIcon">🔊</span>
   </div>
 
 <script>
@@ -681,19 +689,19 @@ const PAGE = `<!doctype html>
   };
 
   // --- Volume / mute / brightness ---
-  // macOS-style HUD: a row of segments matching the Mac's own 16-level
-  // volume steps (kept in sync with VOLUME_LEVELS on the server).
+  // Classic macOS volume OSD: a level line (fill % = volume) with tick
+  // dots below it matching the Mac's own 16-level volume steps (kept in
+  // sync with VOLUME_LEVELS on the server), briefly shown and faded.
   const VOLUME_HUD_LEVELS = 16;
   const volumeHud = document.getElementById('volumeHud');
   const volumeHudIcon = document.getElementById('volumeHudIcon');
-  const volumeHudBar = document.getElementById('volumeHudBar');
-  for (let i = 0; i < VOLUME_HUD_LEVELS; i++) volumeHudBar.appendChild(document.createElement('span'));
+  const volumeHudFill = document.getElementById('volumeHudFill');
+  const volumeHudDots = document.getElementById('volumeHudDots');
+  for (let i = 0; i < VOLUME_HUD_LEVELS; i++) volumeHudDots.appendChild(document.createElement('span'));
   let volumeHudTimer = null;
 
   function showVolumeHud(percent, muted) {
-    const filled = muted ? 0 : Math.round((percent / 100) * VOLUME_HUD_LEVELS);
-    const segs = volumeHudBar.children;
-    for (let i = 0; i < segs.length; i++) segs[i].classList.toggle('filled', i < filled);
+    volumeHudFill.style.width = (muted ? 0 : percent) + '%';
     volumeHudIcon.textContent = muted || percent === 0 ? '🔇' : (percent < 50 ? '🔉' : '🔊');
     volumeHud.classList.add('visible');
     clearTimeout(volumeHudTimer);
