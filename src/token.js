@@ -1,14 +1,19 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 
+const TOKEN_BYTES = 16;
+export const MIN_TOKEN_LENGTH = TOKEN_BYTES * 2;
+
+/** Reads the saved token, generating one if missing or too short to be safe (older versions used 8 characters). */
 export function getOrCreateToken(file) {
   try {
-    return fs.readFileSync(file, 'utf8').trim();
-  } catch {
-    const token = crypto.randomBytes(4).toString('hex');
-    fs.writeFileSync(file, token);
-    return token;
-  }
+    const existing = fs.readFileSync(file, 'utf8').trim();
+    if (existing.length >= MIN_TOKEN_LENGTH) return existing;
+  } catch { /* no saved token yet */ }
+  const token = crypto.randomBytes(TOKEN_BYTES).toString('hex');
+  fs.writeFileSync(file, token);
+  fs.chmodSync(file, 0o600); // the mode option is ignored when the file already exists
+  return token;
 }
 
 export function tokensMatch(supplied, expected) {

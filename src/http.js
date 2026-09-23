@@ -2,6 +2,8 @@ import fs from 'node:fs/promises';
 import http from 'node:http';
 import path from 'node:path';
 import { LIMITS } from './config.js';
+import { isPrivateAddress } from './network.js';
+import { createAuthLimiter } from './rate-limit.js';
 import { tokensMatch } from './token.js';
 import { HttpError } from './util.js';
 import { handleUpgrade } from './websocket.js';
@@ -16,8 +18,14 @@ const ACCESSIBILITY_ERROR = /not allowed to send keystrokes|assistive access|not
 const ACCESSIBILITY_HINT =
   'Grant Accessibility permission to Terminal in System Settings → Privacy & Security → Accessibility';
 
-function sendJson(res, status, body) {
-  res.writeHead(status, { 'Content-Type': 'application/json' });
+const SECURITY_HEADERS = {
+  'X-Content-Type-Options': 'nosniff',
+  'X-Frame-Options': 'DENY',
+  'Referrer-Policy': 'no-referrer',
+};
+
+function sendJson(res, status, body, headers) {
+  res.writeHead(status, { 'Content-Type': 'application/json', ...headers });
   res.end(JSON.stringify(body));
 }
 
@@ -57,10 +65,12 @@ async function serveStatic(res, publicDir, pathname) {
   }
 }
 
-async function handleApi(req, res, { token, actions }, name) {
-  if (!tokensMatch(req.headers['x-remote-token'], token)) {
-    return sendJson(res, 403, { error: 'invalid token' });
+async function handleApi(req, res, { authorize, actions }, name) {
+  const auth = authorize(req, req.headers['x-remote-token']);
+  if (auth === 'blocked') {
+    return sendJson(res, 429, { error: 'too many failed attempts, try again later' }, { 'Retry-After': '300' });
   }
+  if (auth === 'denied') return sendJson(res, 403, { error: 'invalid token' });
   const action = Object.hasOwn(actions, name) ? actions[name] : null;
   if (!action) return sendJson(res, 404, { error: 'unknown action' });
 
@@ -76,24 +86,64 @@ async function handleApi(req, res, { token, actions }, name) {
 }
 
 /**
+ * Returns 'ok', 'denied' or 'blocked' for a supplied token, counting failures
+ * per client address so the token can't be guessed by brute force.
+ */
+function createAuthorizer({ token, limiter }) {
+  return (req, supplied) => {
+    const ip = req.socket.remoteAddress;
+    if (limiter.isBlocked(ip)) return 'blocked';
+    if (tokensMatch(supplied, token)) {
+      limiter.recordSuccess(ip);
+      return 'ok';
+    }
+    limiter.recordFailure(ip);
+    return 'denied';
+  };
+}
+
+/**
  * @param {object} options
  * @param {string} options.token shared secret required by the API and WebSocket
  * @param {Record<string, Function>} options.actions handlers keyed by API action name
  * @param {(message: string) => void} options.onSocketMessage receives trackpad WebSocket messages
  * @param {string} options.publicDir directory of static client files
+ * @param {ReturnType<typeof createAuthLimiter>} [options.limiter] failed-auth tracker
+ * @param {(address: string) => boolean} [options.allowClient] rejects clients outside private networks by default
  */
-export function createHttpServer({ token, actions, onSocketMessage, publicDir }) {
+export function createHttpServer({
+  token,
+  actions,
+  onSocketMessage,
+  publicDir,
+  limiter = createAuthLimiter(),
+  allowClient = isPrivateAddress,
+}) {
   const root = path.resolve(publicDir);
+  const authorize = createAuthorizer({ token, limiter });
+
   const server = http.createServer((req, res) => {
+    if (!allowClient(req.socket.remoteAddress)) {
+      res.writeHead(403, SECURITY_HEADERS).end();
+      return;
+    }
+    for (const [name, value] of Object.entries(SECURITY_HEADERS)) res.setHeader(name, value);
+
     const { pathname } = new URL(req.url, `http://${req.headers.host}`);
     if (req.method === 'GET') return serveStatic(res, root, pathname);
     if (req.method === 'POST' && pathname.startsWith('/api/')) {
-      return handleApi(req, res, { token, actions }, pathname.slice('/api/'.length));
+      return handleApi(req, res, { authorize, actions }, pathname.slice('/api/'.length));
     }
     res.writeHead(404).end();
   });
+
   server.on('upgrade', (req, socket) => {
-    handleUpgrade(req, socket, { token, onMessage: onSocketMessage });
+    if (!allowClient(req.socket.remoteAddress)) {
+      socket.destroy();
+      return;
+    }
+    const isAuthorized = (request, supplied) => authorize(request, supplied) === 'ok';
+    handleUpgrade(req, socket, { authorize: isAuthorized, onMessage: onSocketMessage });
   });
   return server;
 }

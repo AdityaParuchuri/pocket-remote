@@ -5,6 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { after, before, test } from 'node:test';
 import { createHttpServer } from '../src/http.js';
+import { createAuthLimiter } from '../src/rate-limit.js';
 import { HttpError } from '../src/util.js';
 import { acceptKey } from '../src/websocket.js';
 
@@ -161,4 +162,52 @@ test('upgrades a WebSocket with a valid token and delivers text messages', async
 test('refuses a WebSocket with a bad token', async () => {
   const { response } = await upgrade('?token=wrong');
   assert.equal(response, '');
+});
+
+test('locks out a client after repeated bad tokens, even for the right token', async () => {
+  const limited = createHttpServer({
+    token: TOKEN,
+    publicDir,
+    actions: { ok: async () => {} },
+    onSocketMessage: () => {},
+    limiter: createAuthLimiter({ maxFailures: 3 }),
+  });
+  await new Promise((resolve) => limited.listen(0, '127.0.0.1', resolve));
+  const url = `http://127.0.0.1:${limited.address().port}/api/ok`;
+  const call = (token) => fetch(url, { method: 'POST', headers: { 'x-remote-token': token } });
+
+  try {
+    for (let i = 0; i < 3; i++) assert.equal((await call('wrong')).status, 403);
+    const blocked = await call(TOKEN);
+    assert.equal(blocked.status, 429);
+    assert.ok(blocked.headers.get('retry-after'));
+  } finally {
+    limited.closeAllConnections();
+    limited.close();
+  }
+});
+
+test('rejects clients outside private networks', async () => {
+  const closed = createHttpServer({
+    token: TOKEN,
+    publicDir,
+    actions: {},
+    onSocketMessage: () => {},
+    allowClient: () => false,
+  });
+  await new Promise((resolve) => closed.listen(0, '127.0.0.1', resolve));
+  try {
+    const res = await fetch(`http://127.0.0.1:${closed.address().port}/`);
+    assert.equal(res.status, 403);
+  } finally {
+    closed.closeAllConnections();
+    closed.close();
+  }
+});
+
+test('sends security headers', async () => {
+  const res = await fetch(`${baseUrl}/`);
+  assert.equal(res.headers.get('x-content-type-options'), 'nosniff');
+  assert.equal(res.headers.get('x-frame-options'), 'DENY');
+  assert.equal(res.headers.get('referrer-policy'), 'no-referrer');
 });

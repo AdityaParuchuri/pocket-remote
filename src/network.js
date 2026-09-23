@@ -9,3 +9,24 @@ export function getLanUrls(port, token) {
   }
   return urls;
 }
+
+function isPrivateIPv4(address) {
+  const [a, b] = address.split('.').map(Number);
+  return (
+    a === 10 ||
+    a === 127 ||
+    (a === 172 && b >= 16 && b <= 31) ||
+    (a === 192 && b === 168) ||
+    (a === 169 && b === 254) || // link-local
+    (a === 100 && b >= 64 && b <= 127) // CGNAT, used by Tailscale
+  );
+}
+
+/** Whether `address` is loopback, link-local or in a private range, i.e. not the public internet. */
+export function isPrivateAddress(address = '') {
+  const mapped = address.match(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/i);
+  if (mapped) return isPrivateIPv4(mapped[1]);
+  if (/^\d+\.\d+\.\d+\.\d+$/.test(address)) return isPrivateIPv4(address);
+  const lower = address.toLowerCase();
+  return lower === '::1' || lower.startsWith('fe80:') || /^f[cd][0-9a-f]{2}:/.test(lower);
+}

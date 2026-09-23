@@ -1,5 +1,4 @@
 import crypto from 'node:crypto';
-import { tokensMatch } from './token.js';
 
 // Minimal RFC 6455 server, dependency-free. The trackpad streams many small
 // messages, and one persistent socket avoids per-move HTTP overhead.
@@ -60,11 +59,14 @@ export function encodeFrame(opcode, payload) {
   return Buffer.concat([header, payload]);
 }
 
-/** Upgrades `/ws?token=...` requests and passes each text message to `onMessage`. */
-export function handleUpgrade(req, socket, { token, onMessage }) {
+/**
+ * Upgrades `/ws` requests and passes each text message to `onMessage`.
+ * `authorize(req, token)` decides whether the `?token=` query value is accepted.
+ */
+export function handleUpgrade(req, socket, { authorize, onMessage }) {
   const url = new URL(req.url, `http://${req.headers.host}`);
   const key = req.headers['sec-websocket-key'];
-  if (url.pathname !== '/ws' || !key || !tokensMatch(url.searchParams.get('token'), token)) {
+  if (url.pathname !== '/ws' || !key || !authorize(req, url.searchParams.get('token'))) {
     socket.destroy();
     return;
   }
