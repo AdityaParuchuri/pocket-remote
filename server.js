@@ -302,13 +302,20 @@ const PAGE = `<!doctype html>
   * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
   html { overscroll-behavior-y: contain; }
   html, body {
-    min-height: 100%; margin: 0;
+    height: 100%; margin: 0;
     background: #0b0b0d; color: #f2f2f2;
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   }
   body {
     display: flex; flex-direction: column; align-items: center;
-    gap: 14px; padding: 50px 24px 40px;
+    gap: 14px;
+    height: 100vh;
+    height: 100dvh;
+    padding: 50px 24px calc(20px + env(safe-area-inset-bottom, 0px));
+  }
+  #app {
+    display: flex; flex-direction: column; align-items: center;
+    gap: 14px; flex: 1; min-height: 0; width: 100%;
   }
   h1 {
     font-size: 13px; font-weight: 600; color: #7a7a80; margin: 18px 0 2px;
@@ -328,7 +335,7 @@ const PAGE = `<!doctype html>
   .play:active { background: #1d4ed8; }
   .small { width: 76px; height: 76px; font-size: 26px; border-radius: 22px; }
   #trackpad {
-    width: min(340px, 100%); height: 200px; border-radius: 20px;
+    width: min(340px, 100%); flex: 1; min-height: 140px; border-radius: 20px;
     background: #16161a; box-shadow: 0 0 0 1px #2a2a2e inset;
     display: flex; align-items: center; justify-content: center;
     color: #55555c; font-size: 13px; text-align: center; padding: 16px;
