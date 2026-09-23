@@ -599,6 +599,15 @@ const PAGE = `<!doctype html>
     if (navigator.vibrate) navigator.vibrate(15);
   }
 
+  // element.hidden = true/false doesn't reliably reflect to the actual
+  // "hidden" content attribute on SVG elements across browsers, unlike
+  // plain HTML elements — set/remove the attribute directly so CSS
+  // selectors like :not([hidden]) can actually see the change.
+  function setHidden(el, hide) {
+    if (hide) el.setAttribute('hidden', '');
+    else el.removeAttribute('hidden');
+  }
+
   const params = new URLSearchParams(location.search);
   let token = params.get('token') || localStorage.getItem('remoteToken') || '';
   if (params.get('token')) localStorage.setItem('remoteToken', token);
@@ -699,8 +708,8 @@ const PAGE = `<!doctype html>
   playBtn.onclick = () => {
     send('playpause');
     isPlaying = !isPlaying;
-    playTriangle.hidden = isPlaying;
-    playBars.hidden = !isPlaying;
+    setHidden(playTriangle, isPlaying);
+    setHidden(playBars, !isPlaying);
   };
 
   // --- Volume / mute / brightness ---
@@ -726,14 +735,14 @@ const PAGE = `<!doctype html>
   function showVolumeHud(percent, muted) {
     volumeHudFill.style.width = (muted ? 0 : percent) + '%';
     const isMuted = muted || percent === 0;
-    volumeHudIconLoud.hidden = isMuted;
-    volumeHudIconMuted.hidden = !isMuted;
+    setHidden(volumeHudIconLoud, isMuted);
+    setHidden(volumeHudIconMuted, !isMuted);
     showHud(true);
   }
 
   function showMuteHud(muted) {
-    volumeHudIconLoud.hidden = muted;
-    volumeHudIconMuted.hidden = !muted;
+    setHidden(volumeHudIconLoud, muted);
+    setHidden(volumeHudIconMuted, !muted);
     showHud(false);
   }
 
