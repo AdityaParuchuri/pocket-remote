@@ -481,6 +481,23 @@ const PAGE = `<!doctype html>
   .overlay-actions button[type="submit"]:active { background: #1d4ed8; }
   .overlay-actions button#keyboardClose { background: #2c2c31; color: #f2f2f2; }
   .overlay-actions button#keyboardClose:active { background: #3a3a3f; }
+
+  /* macOS-style volume HUD: a centered rounded card with an icon and a
+     segmented level bar, briefly shown and faded on change. */
+  .hud {
+    position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%) scale(0.85);
+    width: 176px; padding: 26px 20px 22px; box-sizing: border-box;
+    background: rgba(28,28,31,0.88); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
+    border-radius: 18px;
+    display: flex; flex-direction: column; align-items: center; gap: 16px;
+    opacity: 0; pointer-events: none; z-index: 30;
+    transition: opacity 0.15s ease, transform 0.15s ease;
+  }
+  .hud.visible { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+  .hud-icon { font-size: 34px; line-height: 1; }
+  .hud-bar { display: flex; gap: 3px; width: 100%; }
+  .hud-bar span { flex: 1; height: 9px; border-radius: 2px; background: rgba(255,255,255,0.18); }
+  .hud-bar span.filled { background: #f2f2f2; }
 </style>
 </head>
 <body>
@@ -542,6 +559,11 @@ const PAGE = `<!doctype html>
         <button type="button" id="keyboardClose">Close</button>
       </div>
     </form>
+  </div>
+
+  <div id="volumeHud" class="hud">
+    <div class="hud-icon" id="volumeHudIcon">🔊</div>
+    <div class="hud-bar" id="volumeHudBar"></div>
   </div>
 
 <script>
@@ -659,17 +681,36 @@ const PAGE = `<!doctype html>
   };
 
   // --- Volume / mute / brightness ---
+  // macOS-style HUD: a row of segments matching the Mac's own 16-level
+  // volume steps (kept in sync with VOLUME_LEVELS on the server).
+  const VOLUME_HUD_LEVELS = 16;
+  const volumeHud = document.getElementById('volumeHud');
+  const volumeHudIcon = document.getElementById('volumeHudIcon');
+  const volumeHudBar = document.getElementById('volumeHudBar');
+  for (let i = 0; i < VOLUME_HUD_LEVELS; i++) volumeHudBar.appendChild(document.createElement('span'));
+  let volumeHudTimer = null;
+
+  function showVolumeHud(percent, muted) {
+    const filled = muted ? 0 : Math.round((percent / 100) * VOLUME_HUD_LEVELS);
+    const segs = volumeHudBar.children;
+    for (let i = 0; i < segs.length; i++) segs[i].classList.toggle('filled', i < filled);
+    volumeHudIcon.textContent = muted || percent === 0 ? '🔇' : (percent < 50 ? '🔉' : '🔊');
+    volumeHud.classList.add('visible');
+    clearTimeout(volumeHudTimer);
+    volumeHudTimer = setTimeout(() => volumeHud.classList.remove('visible'), 1200);
+  }
+
   document.getElementById('volUp').onclick = async () => {
     const data = await send('volume/up');
-    if (data && typeof data.volume === 'number') flash('Volume ' + data.volume + '%', 1500, false);
+    if (data && typeof data.volume === 'number') showVolumeHud(data.volume, false);
   };
   document.getElementById('volDown').onclick = async () => {
     const data = await send('volume/down');
-    if (data && typeof data.volume === 'number') flash('Volume ' + data.volume + '%', 1500, false);
+    if (data && typeof data.volume === 'number') showVolumeHud(data.volume, false);
   };
   document.getElementById('muteBtn').onclick = async () => {
     const data = await send('mute');
-    if (data && typeof data.muted === 'boolean') flash(data.muted ? 'Muted' : 'Unmuted', 1200, false);
+    if (data && typeof data.muted === 'boolean') showVolumeHud(data.volume || 0, data.muted);
   };
   document.getElementById('brightUp').onclick = () => { send('brightness/up'); flash('Brightness up', 1000, false); };
   document.getElementById('brightDown').onclick = () => { send('brightness/down'); flash('Brightness down', 1000, false); };
@@ -942,6 +983,7 @@ const server = http.createServer(async (req, res) => {
         extra.volume = await changeVolume(-1);
       } else if (action === 'mute') {
         extra.muted = await toggleMute();
+        extra.volume = await getSystemVolume();
       } else if (action === 'keyboard/type') {
         const body = await readJsonBody(req);
         if (typeof body.text !== 'string' || !body.text) throw new Error('missing text');
