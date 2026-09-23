@@ -236,6 +236,10 @@ function handleWsUpgrade(req, socket) {
     socket.destroy();
     return;
   }
+  // Without this, Nagle's algorithm can hold each small move frame for up
+  // to ~40ms waiting to coalesce with more outgoing data, which shows up
+  // as periodic stutter rather than a smooth stream of moves.
+  socket.setNoDelay(true);
   socket.write([
     'HTTP/1.1 101 Switching Protocols',
     'Upgrade: websocket',
@@ -480,20 +484,18 @@ const PAGE = `<!doctype html>
   const TAP_MAX_MOVE = 8;
 
   let touchState = null;
-  let pendingDx = 0, pendingDy = 0;
-  let flushTimer = null;
 
-  function flushMove() {
-    if (pendingDx !== 0 || pendingDy !== 0) {
-      const dx = pendingDx, dy = pendingDy;
-      pendingDx = 0; pendingDy = 0;
-      if (!sendWs('move ' + dx + ' ' + dy)) send('mouse/move', { dx, dy });
-    }
+  // Each touchmove is sent as soon as it happens rather than batched onto a
+  // setInterval tick — batching decoupled send timing from actual touch
+  // events, and JS timer jitter under load turned that into uneven, bursty
+  // movement. Now that a move is a single cheap WebSocket frame, 1:1 is
+  // both simpler and smoother.
+  function sendMove(dx, dy) {
+    if (dx === 0 && dy === 0) return;
+    if (!sendWs('move ' + dx + ' ' + dy)) send('mouse/move', { dx, dy });
   }
 
   function endTracking() {
-    if (flushTimer) { clearInterval(flushTimer); flushTimer = null; }
-    flushMove();
     trackpad.classList.remove('active');
     if (!sendWs('end')) send('mouse/end');
   }
@@ -509,7 +511,6 @@ const PAGE = `<!doctype html>
       maxFingers: e.touches.length,
       moved: false,
     };
-    if (!flushTimer) flushTimer = setInterval(flushMove, 16);
   }, { passive: false });
 
   trackpad.addEventListener('touchmove', (e) => {
@@ -520,8 +521,7 @@ const PAGE = `<!doctype html>
     if (e.touches.length < 3) {
       const dx = (t.clientX - touchState.lastX) * SENSITIVITY;
       const dy = (t.clientY - touchState.lastY) * SENSITIVITY;
-      pendingDx += dx;
-      pendingDy += dy;
+      sendMove(dx, dy);
     }
     touchState.lastX = t.clientX;
     touchState.lastY = t.clientY;
