@@ -164,6 +164,110 @@ function readJsonBody(req) {
   });
 }
 
+// Minimal WebSocket server (no deps) for the trackpad: one persistent
+// connection avoids per-move HTTP request/response overhead (headers,
+// JSON parsing, a fetch() call each time), which was the remaining source
+// of lag once the mouse daemon removed the process-spawn cost.
+const WS_MAGIC = '258EAFA65E914466B4A2E5C0DBF9EA46';
+
+function wsAcceptKey(key) {
+  return crypto.createHash('sha1').update(key + WS_MAGIC).digest('base64');
+}
+
+function wsParseFrame(buf) {
+  if (buf.length < 2) return null;
+  const b0 = buf[0], b1 = buf[1];
+  const opcode = b0 & 0x0f;
+  const masked = (b1 & 0x80) !== 0;
+  let len = b1 & 0x7f;
+  let offset = 2;
+  if (len === 126) {
+    if (buf.length < 4) return null;
+    len = buf.readUInt16BE(2);
+    offset = 4;
+  } else if (len === 127) {
+    if (buf.length < 10) return null;
+    len = Number(buf.readBigUInt64BE(2));
+    offset = 10;
+  }
+  let maskKey = null;
+  if (masked) {
+    if (buf.length < offset + 4) return null;
+    maskKey = buf.subarray(offset, offset + 4);
+    offset += 4;
+  }
+  if (buf.length < offset + len) return null;
+  let payload = buf.subarray(offset, offset + len);
+  if (masked) {
+    const unmasked = Buffer.alloc(len);
+    for (let i = 0; i < len; i++) unmasked[i] = payload[i] ^ maskKey[i % 4];
+    payload = unmasked;
+  }
+  return { opcode, payload, frameLength: offset + len };
+}
+
+function wsEncodeFrame(opcode, payload) {
+  const len = payload.length;
+  let header;
+  if (len < 126) {
+    header = Buffer.from([0x80 | opcode, len]);
+  } else if (len < 65536) {
+    header = Buffer.alloc(4);
+    header[0] = 0x80 | opcode;
+    header[1] = 126;
+    header.writeUInt16BE(len, 2);
+  } else {
+    header = Buffer.alloc(10);
+    header[0] = 0x80 | opcode;
+    header[1] = 127;
+    header.writeBigUInt64BE(BigInt(len), 2);
+  }
+  return Buffer.concat([header, payload]);
+}
+
+function handleWsUpgrade(req, socket) {
+  const url = new URL(req.url, `http://${req.headers.host}`);
+  const key = req.headers['sec-websocket-key'];
+  if (url.searchParams.get('token') !== TOKEN || !key) {
+    socket.destroy();
+    return;
+  }
+  socket.write([
+    'HTTP/1.1 101 Switching Protocols',
+    'Upgrade: websocket',
+    'Connection: Upgrade',
+    `Sec-WebSocket-Accept: ${wsAcceptKey(key)}`,
+    '\r\n',
+  ].join('\r\n'));
+
+  let buffer = Buffer.alloc(0);
+  socket.on('data', (chunk) => {
+    buffer = Buffer.concat([buffer, chunk]);
+    while (true) {
+      const frame = wsParseFrame(buffer);
+      if (!frame) break;
+      buffer = buffer.subarray(frame.frameLength);
+
+      if (frame.opcode === 0x8) { // close
+        socket.end(wsEncodeFrame(0x8, Buffer.alloc(0)));
+        return;
+      } else if (frame.opcode === 0x9) { // ping
+        socket.write(wsEncodeFrame(0xA, frame.payload));
+      } else if (frame.opcode === 0x1) { // text
+        const parts = frame.payload.toString('utf8').split(' ');
+        if (parts[0] === 'move') {
+          const dx = Math.max(-MOUSE_MOVE_LIMIT, Math.min(MOUSE_MOVE_LIMIT, Number(parts[1])));
+          const dy = Math.max(-MOUSE_MOVE_LIMIT, Math.min(MOUSE_MOVE_LIMIT, Number(parts[2])));
+          if (Number.isFinite(dx) && Number.isFinite(dy)) mouseMove(dx, dy);
+        } else if (parts[0] === 'click') {
+          mouseClick();
+        }
+      }
+    }
+  });
+  socket.on('error', () => {});
+}
+
 function getLanUrls() {
   const nets = os.networkInterfaces();
   const urls = [];
@@ -283,6 +387,7 @@ const PAGE = `<!doctype html>
       tokenBox.style.display = 'none';
       appEl.style.display = 'block';
       statusEl.textContent = '';
+      connectWs();
     }
   };
 
@@ -290,6 +395,32 @@ const PAGE = `<!doctype html>
     statusEl.textContent = msg;
     statusEl.style.color = isError ? '#ff6b6b' : '#9a9a9f';
     if (ms) setTimeout(() => { if (statusEl.textContent === msg) statusEl.textContent = ''; }, ms);
+  }
+
+  // Trackpad moves/clicks go over a persistent WebSocket when available —
+  // avoids per-move HTTP request/response overhead. Falls back to the
+  // regular fetch() API if the socket isn't open yet.
+  let ws = null;
+  let wsReconnectDelay = 500;
+
+  function connectWs() {
+    if (!token) return;
+    ws = new WebSocket('ws://' + location.host + '/ws?token=' + encodeURIComponent(token));
+    ws.onopen = () => { wsReconnectDelay = 500; };
+    ws.onclose = () => {
+      ws = null;
+      setTimeout(connectWs, wsReconnectDelay);
+      wsReconnectDelay = Math.min(wsReconnectDelay * 2, 5000);
+    };
+    ws.onerror = () => { ws.close(); };
+  }
+
+  function sendWs(msg) {
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(msg);
+      return true;
+    }
+    return false;
   }
 
   async function send(action, body) {
@@ -319,6 +450,7 @@ const PAGE = `<!doctype html>
   }
 
   if (!token) showTokenPrompt();
+  else connectWs();
 
   document.getElementById('rewind').onclick = () => send('rewind');
   document.getElementById('playpause').onclick = () => send('playpause');
@@ -349,7 +481,7 @@ const PAGE = `<!doctype html>
     if (pendingDx !== 0 || pendingDy !== 0) {
       const dx = pendingDx, dy = pendingDy;
       pendingDx = 0; pendingDy = 0;
-      send('mouse/move', { dx, dy });
+      if (!sendWs('move ' + dx + ' ' + dy)) send('mouse/move', { dx, dy });
     }
   }
 
@@ -403,7 +535,7 @@ const PAGE = `<!doctype html>
     if (fingers >= 3 && Math.abs(dx) > SWIPE_THRESHOLD && Math.abs(dx) > Math.abs(dy)) {
       send(dx < 0 ? 'space/next' : 'space/prev');
     } else if (fingers === 1 && !touchState.moved && elapsed < TAP_MAX_MS) {
-      send('mouse/click');
+      if (!sendWs('click')) send('mouse/click');
     }
     touchState = null;
   }, { passive: false });
@@ -470,6 +602,14 @@ const server = http.createServer(async (req, res) => {
 
   res.writeHead(404);
   res.end();
+});
+
+server.on('upgrade', (req, socket) => {
+  if (new URL(req.url, `http://${req.headers.host}`).pathname === '/ws') {
+    handleWsUpgrade(req, socket);
+  } else {
+    socket.destroy();
+  }
 });
 
 startMouseDaemon();
