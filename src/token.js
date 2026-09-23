@@ -1,5 +1,6 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs';
+import path from 'node:path';
 
 const TOKEN_BYTES = 16;
 export const MIN_TOKEN_LENGTH = TOKEN_BYTES * 2;
@@ -11,6 +12,7 @@ export function getOrCreateToken(file) {
     if (existing.length >= MIN_TOKEN_LENGTH) return existing;
   } catch { /* no saved token yet */ }
   const token = crypto.randomBytes(TOKEN_BYTES).toString('hex');
+  fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
   fs.writeFileSync(file, token);
   fs.chmodSync(file, 0o600); // the mode option is ignored when the file already exists
   return token;

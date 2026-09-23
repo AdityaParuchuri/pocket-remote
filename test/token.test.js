@@ -18,6 +18,12 @@ test('creates a 128-bit token file on first use and reuses it afterwards', () =>
   assert.equal(getOrCreateToken(file), first);
 });
 
+test('creates the containing directory when it does not exist', () => {
+  const file = path.join(tempFile(), 'nested', 'token');
+  const token = getOrCreateToken(file);
+  assert.equal(fs.readFileSync(file, 'utf8'), token);
+});
+
 test('the token file is readable only by its owner', () => {
   const file = tempFile();
   getOrCreateToken(file);

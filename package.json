@@ -2,10 +2,25 @@
   "name": "pocket-remote",
   "version": "1.0.0",
   "description": "Control your Mac from your phone: media keys, volume, trackpad, and remote typing.",
-  "type": "module",
-  "private": true,
+  "keywords": ["mac", "macos", "remote-control", "trackpad", "iphone", "phone", "keyboard"],
+  "homepage": "https://github.com/AdityaParuchuri/pocket-remote#readme",
+  "bugs": "https://github.com/AdityaParuchuri/pocket-remote/issues",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/AdityaParuchuri/pocket-remote.git"
+  },
   "license": "MIT",
+  "author": "Aditya Paruchuri",
+  "type": "module",
   "main": "src/index.js",
+  "bin": {
+    "pocket-remote": "src/index.js"
+  },
+  "files": [
+    "src",
+    "public"
+  ],
+  "os": ["darwin"],
   "engines": {
     "node": ">=20"
   },
@@ -13,7 +28,8 @@
     "start": "node src/index.js",
     "test": "node --test",
     "test:coverage": "node --test --experimental-test-coverage",
-    "lint": "eslint ."
+    "lint": "eslint .",
+    "prepublishOnly": "npm run lint && npm test"
   },
   "devDependencies": {
     "@eslint/js": "^9.0.0",

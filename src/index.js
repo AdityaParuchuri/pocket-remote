@@ -1,3 +1,4 @@
+#!/usr/bin/env node
 import { createActions } from './actions.js';
 import { DAEMON_SCRIPT, PORT, PUBLIC_DIR, TOKEN_FILE } from './config.js';
 import { createHttpServer } from './http.js';
@@ -29,5 +30,5 @@ server.listen(PORT, '0.0.0.0', () => {
   console.log(`Pocket Remote running on port ${PORT}\n`);
   console.log('Open one of these on your phone (same WiFi):\n');
   for (const url of getLanUrls(PORT, token)) console.log(`  ${url}`);
-  console.log(`\nToken: ${token} (saved in .token, reused across restarts)`);
+  console.log(`\nToken: ${token} (saved in ~/.pocket-remote/token, reused across restarts)`);
 });
