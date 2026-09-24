@@ -4,11 +4,13 @@
 
 ## Quick start
 
-Requires macOS and [Node.js](https://nodejs.org) 20 or newer.
+**Requires macOS and [Node.js](https://nodejs.org) 20 or newer.** Download the LTS installer from nodejs.org, or run `brew install node` if you use Homebrew. If Terminal says `command not found: npx`, Node isn't installed yet.
 
 ```sh
 npx pocket-remote
 ```
+
+The first run asks to confirm the download; type `y`, or run `npx -y pocket-remote` to skip the question.
 
 Or from source:
 
@@ -26,9 +28,12 @@ The token is saved in `~/.pocket-remote/token`, so the same URL keeps working ac
 
 On iPhone, tap **Share → Add to Home Screen**. It then opens full-screen like an app, with no browser bar. (iOS doesn't let a web page do this automatically, so the remote shows a one-time reminder.)
 
-### Grant Accessibility permission
+### Grant permissions
 
-Pocket Remote controls your Mac by sending it keystrokes and mouse events, so macOS needs to allow it. The first time you tap something, macOS may ask you to allow your terminal app. If controls do nothing, open **System Settings → Privacy & Security → Accessibility** and enable the terminal you started it from (Terminal, iTerm, VS Code, …).
+Pocket Remote controls your Mac by sending it keystrokes and mouse events, so macOS asks for permission the first time you tap something:
+
+- If a prompt says your terminal wants to control **System Events**, click **Allow**.
+- If controls do nothing, open **System Settings → Privacy & Security → Accessibility** and enable the terminal you started it from (Terminal, iTerm, VS Code, …). Then stop the server with Ctrl+C and start it again.
 
 ## Controls
 
