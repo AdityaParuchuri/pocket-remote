@@ -2,6 +2,10 @@
 
 **Control your MacBook from your phone.** Play and pause media, change volume and brightness, use your phone as a trackpad, switch windows, and type on your Mac with your phone's keyboard, from any browser on the same WiFi. Nothing to install on the phone.
 
+<p align="center">
+  <img src="https://raw.githubusercontent.com/AdityaParuchuri/pocket-remote/main/docs/screenshot.png" width="260" alt="Pocket Remote on an iPhone: media controls, volume, brightness, trackpad, scroll bar and window switcher">
+</p>
+
 ## Quick start
 
 **Requires macOS and [Node.js](https://nodejs.org) 20 or newer.** Download the LTS installer from nodejs.org, or run `brew install node` if you use Homebrew. If Terminal says `command not found: npx`, Node isn't installed yet.
@@ -11,6 +15,8 @@ npx pocket-remote
 ```
 
 The first run asks to confirm the download; type `y`, or run `npx -y pocket-remote` to skip the question.
+
+<img src="https://raw.githubusercontent.com/AdityaParuchuri/pocket-remote/main/docs/demo.gif" width="640" alt="Running npx pocket-remote in Terminal prints a QR code to scan with your phone">
 
 Or from source:
 
