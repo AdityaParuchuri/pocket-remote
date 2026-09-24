@@ -32,7 +32,20 @@ The token is saved in `~/.pocket-remote/token`, so the same URL keeps working ac
 
 ### Add it to your Home Screen
 
-On iPhone, tap **Share → Add to Home Screen**. It then opens full-screen like an app, with no browser bar. (iOS doesn't let a web page do this automatically, so the remote shows a one-time reminder.)
+On iPhone, you can add the remote to your Home Screen so it opens full-screen like an app, with no browser bar. (iOS doesn't let a web page do this automatically, so the remote shows a one-time reminder.)
+
+<table>
+  <tr>
+    <td align="center"><b>1. Tap the Share button</b></td>
+    <td align="center"><b>2. Choose Add to Home Screen</b></td>
+  </tr>
+  <tr>
+    <td><img src="https://raw.githubusercontent.com/AdityaParuchuri/pocket-remote/main/docs/add-to-home-screen-1.jpg" width="240" alt="Tap the Share button in the browser toolbar"></td>
+    <td><img src="https://raw.githubusercontent.com/AdityaParuchuri/pocket-remote/main/docs/add-to-home-screen-2.jpg" width="240" alt="Choose Add to Home Screen from the share sheet"></td>
+  </tr>
+</table>
+
+Then tap **Add**, and open **Pocket Remote** from your Home Screen.
 
 ### Grant permissions
 
